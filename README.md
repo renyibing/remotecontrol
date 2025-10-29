@@ -304,7 +304,7 @@ We have contacted Via LA Licensing (formerly MPEG-LA) and confirmed that Momo's 
 - The license fee for the NVIDIA video card hardware encoder requires a separate agreement with an organization.
 - <https://developer.download.nvidia.com/designworks/DesignWorks_SDKs_Samples_Tools_License_distrib_use_rights_2017_06_13.pdf>
 - The license fee for the NVIDIA Jetson Nano hardware encoder requires a separate contract with your organization.
-- [About the H.264/H.265 Hardware Encoder License for the NVIDIA Jetson Nano](https://medium.com/@voluntas/nvidia-jetson-nano-%E6%90%AD%E8%BC%89%E3%81%AE-h-264-h-265-%E3%83%8F%E3%83%BC%E3%83%89%E3%82%A6%E3%82%A7% E3%82%A2%E3%82%A8%E3%83%B3%E3%82%B3%E3%83%BC%E3%83%80%E3%81%AE%E3%83%A9%E3%82% A4%E3%82%BB%E3%83%B3%E3%82%B9%E3%81%AB%E3%81%A4%E3%81%84%E3%81%A6-ca207af302ee)
+- [About the H.264/H.265 Hardware Encoder License for the NVIDIA Jetson Nano]
 - The Intel Quick Sync Video hardware encoder license fee requires a separate agreement with an organization.
 - [QuickSync \- H\.264 patent licensing fees \- Intel Community](https://community.intel.com/t5/Media-Intel-oneAPI-Video/QuickSync-H-264-patent-licensing-fees/td-p/921396)
 
