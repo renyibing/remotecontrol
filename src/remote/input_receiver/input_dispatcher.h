@@ -9,10 +9,15 @@
 #include <string>
 #include <string_view>
 
+#include <rtc_base/logging.h>
+
 #include "remote/proto/messages.h"
 #include "remote/proto/parser.h"
 #include "remote/overlay/overlay_renderer.h"
 #include "remote/input_receiver/input_injector.h"
+#include <SDL3/SDL_keycode.h>
+
+#include <iostream>
 #ifdef REMOTE_USE_PROTOBUF
 #include "remote/proto/remote_input.pb.h"
 #endif
@@ -84,6 +89,13 @@ class InputDispatcher {
       if (auto down = proto::JsonGetBool(sv, "down")) k.down = *down;
       if (auto mods = proto::JsonGetInt(sv, "mods")) k.mods = static_cast<proto::ModBits>(*mods);
       if (auto key = proto::JsonGetString(sv, "key")) k.key = *key;
+      if (k.code == SDLK_UP || k.code == SDLK_DOWN ||
+          k.code == SDLK_LEFT || k.code == SDLK_RIGHT) {
+        std::cout << "[input] DataChannel recv key=" << k.key
+                  << " code=" << k.code
+                  << " down=" << (k.down ? "true" : "false")
+                  << " mods=" << k.mods << std::endl;
+      }
       injector_->InjectKeyboard(k);
       return;
     }

@@ -11,6 +11,8 @@
 #include <cstdint>
 #include <string>
 #include <algorithm>
+#include <iostream>
+#include <SDL3/SDL_keycode.h>
 
 #include "remote/input_receiver/input_injector.h"
 
@@ -114,7 +116,17 @@ class WindowsInputInjector : public remote::input_receiver::IInputInjector {
     in.type = INPUT_KEYBOARD;
     in.ki.wVk = vk;
     in.ki.dwFlags = ev.down ? 0 : KEYEVENTF_KEYUP;
+    if (IsExtendedKey(vk)) {
+      in.ki.dwFlags |= KEYEVENTF_EXTENDEDKEY;
+    }
     ::SendInput(1, &in, sizeof(INPUT));
+
+    if (vk == VK_UP || vk == VK_DOWN || vk == VK_LEFT || vk == VK_RIGHT) {
+      std::cout << "[input] InjectKeyboard vk=" << vk
+                << " down=" << (ev.down ? "true" : "false")
+                << " key=" << ev.key << " code=" << ev.code
+                << " mods=" << ev.mods << std::endl;
+    }
   }
 
   // Mouse absolute position
@@ -224,6 +236,32 @@ class WindowsInputInjector : public remote::input_receiver::IInputInjector {
     }
     if (ev.code>='A'&&ev.code<='Z') return static_cast<WORD>(ev.code);
     if (ev.code>='0'&&ev.code<='9') return static_cast<WORD>(ev.code);
+
+    // Map common SDL virtual keycodes (>= 0x40000000) to Windows VK codes
+    switch (ev.code) {
+      case SDLK_UP: return VK_UP;
+      case SDLK_DOWN: return VK_DOWN;
+      case SDLK_LEFT: return VK_LEFT;
+      case SDLK_RIGHT: return VK_RIGHT;
+      case SDLK_HOME: return VK_HOME;
+      case SDLK_END: return VK_END;
+      case SDLK_PAGEUP: return VK_PRIOR;
+      case SDLK_PAGEDOWN: return VK_NEXT;
+      case SDLK_INSERT: return VK_INSERT;
+      case SDLK_DELETE: return VK_DELETE;
+      case SDLK_CAPSLOCK: return VK_CAPITAL;
+      case SDLK_NUMLOCKCLEAR: return VK_NUMLOCK;
+      case SDLK_SCROLLLOCK: return VK_SCROLL;
+      case SDLK_PRINTSCREEN: return VK_SNAPSHOT;
+      case SDLK_PAUSE: return VK_PAUSE;
+      case SDLK_LSHIFT: case SDLK_RSHIFT: return VK_SHIFT;
+      case SDLK_LCTRL: case SDLK_RCTRL: return VK_CONTROL;
+      case SDLK_LALT: case SDLK_RALT: return VK_MENU;
+      case SDLK_LGUI: case SDLK_RGUI: return VK_LWIN;
+      default:
+        break;
+    }
+
     // Backward mapping of SDL keycode ASCII value to punctuation
     switch (ev.code) {
       case '`': case '~': return VK_OEM_3;     // ` ~
@@ -240,6 +278,31 @@ class WindowsInputInjector : public remote::input_receiver::IInputInjector {
       default: break;
     }
     return 0;
+  }
+
+  bool IsExtendedKey(WORD vk) const {
+    switch (vk) {
+      case VK_UP:
+      case VK_DOWN:
+      case VK_LEFT:
+      case VK_RIGHT:
+      case VK_HOME:
+      case VK_END:
+      case VK_PRIOR:  // Page Up
+      case VK_NEXT:   // Page Down
+      case VK_INSERT:
+      case VK_DELETE:
+      case VK_DIVIDE: // Numpad divide, if using scan codes
+      case VK_NUMLOCK:
+      case VK_RCONTROL:
+      case VK_RMENU:  // Right Alt
+      case VK_LWIN:
+      case VK_RWIN:
+      case VK_APPS:
+        return true;
+      default:
+        return false;
+    }
   }
 
   void UpdateButtons(uint32_t btns) {

@@ -11,6 +11,14 @@ This project is based on the original momo source code and has been further deve
 
 🔧 Overview of Modifications
 
+## 🎹 Keyboard Hook Integration (New Feature)
+
+This project integrates **libuiohook**, implementing intelligent keyboard interception functionality:
+- **Automatic Interception**: Automatically intercepts all keyboard input when the mouse focus moves within the SDL window.
+- **Automatic Release**: Automatically releases keyboard input when the mouse moves out of the SDL window.
+- **Cross-Platform Support**: Windows, macOS, Linux
+For detailed documentation, please refer to [doc/KEYBOARD_HOOK.md](doc/KEYBOARD_HOOK.md)
+---
 The SDL side is defined as the receiver.
 
 The sender side captures the screen, encodes, and transmits audio and video data to the receiver in real time.

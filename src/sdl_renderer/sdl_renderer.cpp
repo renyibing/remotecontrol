@@ -30,7 +30,8 @@ SDLRenderer::SDLRenderer(int width, int height, bool fullscreen)
       rows_(1),
       cols_(1),
       audio_device_(0),
-      audio_stream_(nullptr) {
+      audio_stream_(nullptr),
+      keyboard_hook_(std::make_unique<sdl_hook::KeyboardHookManager>()) {
   // Low latency: disable rendering vertical synchronization, to avoid waiting for the display to refresh
   SDL_SetHint(SDL_HINT_RENDER_VSYNC, "0");
 
@@ -165,11 +166,20 @@ SDLRenderer::SDLRenderer(int width, int height, bool fullscreen)
         << ": Audio subsystem not available, running video-only";
   }
 
+  // Initialize keyboard hook for system key interception
+  keyboard_hook_->Initialize();
+  keyboard_hook_->SetSDLWindow(window_);
+
   thread_ = SDL_CreateThread(SDLRenderer::RenderThreadExec, "Render", this);
 }
 
 SDLRenderer::~SDLRenderer() {
   running_ = false;
+
+  // Shutdown keyboard hook
+  if (keyboard_hook_) {
+    keyboard_hook_->Shutdown();
+  }
 
   // Clean up audio
   if (audio_stream_) {
@@ -212,6 +222,15 @@ void SDLRenderer::PollEvent() {
   SDL_Event e;
   // Call it from the main thread
   while (SDL_PollEvent(&e)) {
+    // Update keyboard hook on mouse motion, focus changes, and mouse enter/leave
+    if ((e.type == SDL_EVENT_MOUSE_MOTION || 
+         e.type == SDL_EVENT_WINDOW_FOCUS_GAINED || 
+         e.type == SDL_EVENT_WINDOW_FOCUS_LOST ||
+         e.type == SDL_EVENT_WINDOW_MOUSE_ENTER ||
+         e.type == SDL_EVENT_WINDOW_MOUSE_LEAVE) && keyboard_hook_) {
+      keyboard_hook_->UpdateMouseTracking();
+    }
+
     // Before processing internally, give priority to the event hook; if the callback returns true, it is considered that the event has been consumed
     if (event_hook_cb_) {
       if (event_hook_cb_(e)) {
@@ -225,6 +244,7 @@ void SDLRenderer::PollEvent() {
       height_ = e.window.data2;
       SetOutlines();
     }
+
     if (e.type == SDL_EVENT_KEY_UP) {
       // Adjusted to Ctrl + Alt + Shift + F/Q combination keys
       const SDL_Keymod mods = SDL_GetModState();

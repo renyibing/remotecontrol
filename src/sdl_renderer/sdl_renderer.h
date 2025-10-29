@@ -23,6 +23,9 @@
 #include <rtc/video_track_receiver.h>
 #include <rtc_base/synchronization/mutex.h>
 
+// Keyboard hook for system-level key interception
+#include "keyboard_hook.h"
+
 // Forward declarations for audio support
 namespace webrtc {
 class AudioTrackInterface;
@@ -164,6 +167,9 @@ class SDLRenderer : public VideoTrackReceiver {
   AudioTrackSinkVector audio_sinks_;
   SDL_AudioDeviceID audio_device_;
   SDL_AudioStream* audio_stream_;
+
+  // Keyboard hook manager for system key interception
+  std::unique_ptr<sdl_hook::KeyboardHookManager> keyboard_hook_;
 };
 
 #endif

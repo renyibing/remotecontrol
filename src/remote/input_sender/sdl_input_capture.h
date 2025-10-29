@@ -8,6 +8,8 @@
 
 #include <SDL3/SDL.h>
 
+#include <iostream>
+
 #include "remote/input_sender/mouse_mapper.h"
 #include "remote/proto/messages.h"
 #include "remote/proto/serializer.h"
@@ -112,6 +114,15 @@ class SdlInputCapture {
         if (name) k.key = name; else k.key = "";
         // Modifier key state
         k.mods = static_cast<proto::ModBits>(SDL_GetModState());
+
+        if (ev.key.key == SDLK_UP || ev.key.key == SDLK_DOWN ||
+            ev.key.key == SDLK_LEFT || ev.key.key == SDLK_RIGHT) {
+          std::cout << "[input] SDL capture key=" << k.key
+                    << " code=" << k.code
+                    << " down=" << (k.down ? "true" : "false")
+                    << " mods=" << k.mods << std::endl;
+        }
+
         auto pb = proto::PbSerializeKeyboard(k);
         if (!pb.empty()) { if (reliable_) reliable_(pb); }
         else { auto js = proto::SerializeKeyboard(k); if (reliable_) reliable_(js); }

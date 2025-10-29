@@ -108,6 +108,11 @@ if (USE_FAKE_CAPTURE_DEVICE)
 endif()
 find_package(SDL3 REQUIRED CONFIG REQUIRED COMPONENTS SDL3)
 
+# Add libuiohook for system-level keyboard interception
+# It captures system keys (Win, Ctrl+Esc, etc.) and forwards them to SDL
+# Control via event->reserved: 0x00 = pass through, 0x01 = consume (XOR logic)
+add_subdirectory(third_party/libuiohook)
+
 set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
 set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
 set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE ONLY)
@@ -179,6 +184,7 @@ target_link_libraries(momo
     Boost::filesystem
     Boost::json
     CLI11::CLI11
+    uiohook
 )
 
 target_compile_definitions(momo
@@ -201,7 +207,8 @@ target_compile_definitions(momo
 # Configuration for SDL3
 target_sources(momo
   PRIVATE
-    src/sdl_renderer/sdl_renderer.cpp
+  src/sdl_renderer/sdl_renderer.cpp
+  src/sdl_renderer/keyboard_hook.cpp
 )
 target_compile_definitions(momo
   PRIVATE
