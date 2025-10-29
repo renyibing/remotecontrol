@@ -33,14 +33,28 @@ class OverlayRenderer {
     const bool has_image =
         cursor_.visible && cursor_.w > 0 && cursor_.h > 0 &&
         cursor_.rgba.size() >= static_cast<size_t>(cursor_.w) * cursor_.h * 4;
+    auto inside = [](const SDL_FRect& rc, float px, float py) {
+      if (rc.w <= 0.0f || rc.h <= 0.0f)
+        return false;
+      return px >= rc.x && px <= rc.x + rc.w && py >= rc.y &&
+             py <= rc.y + rc.h;
+    };
+    float mx = 0.0f, my = 0.0f;
+    SDL_GetMouseState(&mx, &my);
+    const bool over_toolbar =
+        inside(toolbar_trigger_area_, mx, my) ||
+        inside(toolbar_buttons_area_, mx, my);
+    const bool over_keyboard =
+        keyboard_visible_ && inside(vk_full_.GetKeyboardRect(), mx, my);
     // Hide OS cursor only when there is a valid remote cursor image
-    if (has_image)
-      SDL_HideCursor();
-    else
+    if (over_toolbar || over_keyboard) {
       SDL_ShowCursor();
-    if (has_image) {
-      float mx = 0.0f, my = 0.0f;
-      SDL_GetMouseState(&mx, &my);
+    } else if (has_image) {
+      SDL_HideCursor();
+    } else {
+      SDL_ShowCursor();
+    }
+    if (has_image && !(over_toolbar || over_keyboard)) {
       // Windows side CursorMonitor is BGRA due to DIB, treat as BGRA32
       // If fmt is transported via message in the future, switch here
       SDL_Surface* surface = SDL_CreateSurfaceFrom(
@@ -68,6 +82,7 @@ class OverlayRenderer {
     DrawToolbar(r);
     if (keyboard_visible_) {
       vk_full_.SetSender(reliable_);
+      vk_full_.SetHideCallback([this]() { ToggleKeyboardVisibility(); });
       vk_full_.Render(r);
     }
     if (gamepad_visible_) {
@@ -86,6 +101,8 @@ class OverlayRenderer {
   }
   void SetUiCommand(UiCommand cb) { ui_cmd_ = std::move(cb); }
   void SetKeyboardOpacity(float a) { vk_full_.SetOpacity(a); }
+  void ToggleKeyboardVisibility() { keyboard_visible_ = !keyboard_visible_; }
+  bool IsKeyboardVisible() const { return keyboard_visible_; }
 
 #ifdef REMOTE_WITH_SDL_TTF
   bool ConfigureTooltipFont(const std::string& font_path, int pt_size) {
@@ -104,23 +121,27 @@ class OverlayRenderer {
 
   // Event processing: return true indicates consumption
   bool OnEvent(const SDL_Event& e) {
+    auto inside = [](const SDL_FRect& rc, float px, float py) {
+      if (rc.w <= 0.0f || rc.h <= 0.0f)
+        return false;
+      return px >= rc.x && px <= rc.x + rc.w && py >= rc.y &&
+             py <= rc.y + rc.h;
+    };
     switch (e.type) {
       case SDL_EVENT_MOUSE_MOTION: {
-        auto inside = [](const SDL_FRect& rc, float px, float py) {
-          if (rc.w <= 0.0f || rc.h <= 0.0f)
-            return false;
-          return px >= rc.x && px <= rc.x + rc.w && py >= rc.y &&
-                 py <= rc.y + rc.h;
-        };
         const float mx = static_cast<float>(e.motion.x);
         const float my = static_cast<float>(e.motion.y);
         const bool over_arrow = inside(toolbar_trigger_area_, mx, my);
         const bool over_buttons = inside(toolbar_buttons_area_, mx, my);
+        const bool over_keyboard =
+            keyboard_visible_ && inside(vk_full_.GetKeyboardRect(), mx, my);
         if (toolbar_pinned_) {
           toolbar_hover_ = true;
         } else {
           toolbar_hover_ = over_arrow || over_buttons;
         }
+        if (over_arrow || over_buttons || over_keyboard)
+          return true;
         break;
       }
       case SDL_EVENT_MOUSE_BUTTON_DOWN: {
@@ -132,6 +153,10 @@ class OverlayRenderer {
                                    static_cast<float>(e.button.y)))
             return true;
         }
+        if (keyboard_visible_ &&
+            inside(vk_full_.GetKeyboardRect(), static_cast<float>(e.button.x),
+                   static_cast<float>(e.button.y)))
+          return true;
         break;
       }
       case SDL_EVENT_MOUSE_BUTTON_UP: {
@@ -140,6 +165,10 @@ class OverlayRenderer {
                                  static_cast<float>(e.button.y)))
             return true;
         }
+        if (keyboard_visible_ &&
+            inside(vk_full_.GetKeyboardRect(), static_cast<float>(e.button.x),
+                   static_cast<float>(e.button.y)))
+          return true;
         if (gamepad_visible_ && gp_a_down_) {
           gp_a_down_ = false;
           uint16_t mask = 0;
@@ -226,10 +255,11 @@ class OverlayRenderer {
 
     // State to display only downward arrow
     if (!show_full) {
-      const float arrow_btn_size = 32.0f;
+      const float arrow_btn_width = 32.0f;
+      const float arrow_btn_height = 16.0f;
       const float arrow_y = 6.0f;
-      SDL_FRect arrow_btn{center_x - arrow_btn_size / 2.0f, arrow_y,
-                          arrow_btn_size, arrow_btn_size};
+      SDL_FRect arrow_btn{center_x - arrow_btn_width / 2.0f, arrow_y,
+                          arrow_btn_width, arrow_btn_height};
       toolbar_trigger_area_ = arrow_btn;
       toolbar_buttons_area_ = SDL_FRect{};
       toolbar_btn_pin_ = {};
@@ -242,30 +272,27 @@ class OverlayRenderer {
       toolbar_btn_paste_ = {};
       toolbar_btn_cad_ = {};
 
-      // Button background (semi-transparent gradient)
-      SDL_SetRenderDrawColor(r, 82, 122, 168, 230);
+      // Button background (flat golden)
+      SDL_SetRenderDrawColor(r, 218, 165, 32, 240);
       SDL_RenderFillRect(r, &arrow_btn);
-      SDL_SetRenderDrawColor(r, 130, 170, 210, 210);
-      SDL_RenderLine(r, arrow_btn.x + 2, arrow_btn.y + 1,
-                     arrow_btn.x + arrow_btn.w - 2, arrow_btn.y + 1);
-      SDL_SetRenderDrawColor(r, 48, 74, 106, 210);
-      SDL_RenderLine(r, arrow_btn.x + 2, arrow_btn.y + arrow_btn.h - 2,
-                     arrow_btn.x + arrow_btn.w - 2,
-                     arrow_btn.y + arrow_btn.h - 2);
-      SDL_SetRenderDrawColor(r, 96, 100, 116, 255);
+      SDL_SetRenderDrawColor(r, 184, 134, 11, 255);
       SDL_RenderRect(r, &arrow_btn);
 
-      // Arrow icon (make it look 3D white)
+      // Golden flat "H" icon
       SDL_SetRenderDrawColor(r, 255, 255, 255, 255);
       const float cx = arrow_btn.x + arrow_btn.w / 2.0f;
       const float cy = arrow_btn.y + arrow_btn.h / 2.0f;
-      for (int i = 0; i < 7; ++i) {
-        const float offset = static_cast<float>(i);
-        SDL_RenderLine(r, cx - 8.0f + offset, cy - 3.0f + offset * 0.5f,
-                       cx + 8.0f - offset, cy - 3.0f + offset * 0.5f);
-      }
-      SDL_SetRenderDrawColor(r, 210, 230, 250, 255);
-      SDL_RenderLine(r, cx - 5.0f, cy - 1.5f, cx + 5.0f, cy - 1.5f);
+      const float h_width = arrow_btn_width * 0.5f;
+      const float h_height = arrow_btn_height * 0.6f;
+      const float bar_width = 2.0f;
+      SDL_FRect h_left{cx - h_width / 2.0f, cy - h_height / 2.0f, bar_width,
+                       h_height};
+      SDL_RenderFillRect(r, &h_left);
+      SDL_FRect h_right{cx + h_width / 2.0f - bar_width,
+                        cy - h_height / 2.0f, bar_width, h_height};
+      SDL_RenderFillRect(r, &h_right);
+      SDL_FRect h_middle{cx - h_width / 2.0f, cy - 0.75f, h_width, 1.5f};
+      SDL_RenderFillRect(r, &h_middle);
       return;
     }
 
@@ -506,7 +533,7 @@ class OverlayRenderer {
       return true;
     }
     if (inside(toolbar_btn_kb_, x, y)) {
-      keyboard_visible_ = !keyboard_visible_;
+      ToggleKeyboardVisibility();
       return true;
     }
     if (inside(toolbar_btn_pad_, x, y)) {

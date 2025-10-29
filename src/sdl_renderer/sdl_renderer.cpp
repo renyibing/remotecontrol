@@ -1,6 +1,7 @@
 #include "sdl_renderer.h"
 
 #include <array>
+#include <cctype>
 #include <cmath>
 #include <csignal>
 #include <cstddef>
@@ -78,6 +79,7 @@ SDLRenderer::SDLRenderer(int width, int height, bool fullscreen)
   // Enable blending to correctly draw semi-transparent overlays
   if (renderer_) {
     SDL_SetRenderDrawBlendMode(renderer_, SDL_BLENDMODE_BLEND);
+    SDL_SetRenderDrawColor(renderer_, 0, 0, 0, 255);
   }
 
   // Initialize audio device for playback (only if audio subsystem is available)
@@ -270,7 +272,9 @@ int SDLRenderer::RenderThread() {
     start_time = SDL_GetTicks();
     {
       webrtc::MutexLock lock(&sinks_lock_);
+      SDL_SetRenderDrawColor(renderer_, 0, 0, 0, 255);
       SDL_RenderClear(renderer_);
+      bool has_valid_frame = false;
       for (const VideoTrackSinkVector::value_type& sinks : sinks_) {
         Sink* sink = sinks.second.get();
 
@@ -284,6 +288,8 @@ int SDLRenderer::RenderThread() {
 
         if (width == 0 || height == 0)
           continue;
+
+        has_valid_frame = true;
 
         SDL_Surface* surface =
             SDL_CreateSurfaceFrom(width, height, SDL_PIXELFORMAT_ARGB8888,
@@ -301,6 +307,9 @@ int SDLRenderer::RenderThread() {
         SDL_RenderTexture(renderer_, texture, &image_rect, &draw_rect);
 
         SDL_DestroyTexture(texture);
+      }
+      if (!has_valid_frame) {
+        DrawHomageText(renderer_);
       }
       // Overlay custom overlays before rendering (mouse image, virtual keyboard, controller, RDP toolbar, etc.)
       if (overlay_render_cb_) {
@@ -568,6 +577,111 @@ bool SDLRenderer::GetPrimaryVideoRect(int& x,
     }
   }
   return true;
+}
+
+void SDLRenderer::DrawHomageText(SDL_Renderer* renderer) {
+  if (!renderer)
+    return;
+  const char* text = "A TRIBUTE TO HONPC";
+  const int len = static_cast<int>(std::strlen(text));
+  if (len <= 0)
+    return;
+
+  int w = 0, h = 0;
+  SDL_GetRenderOutputSize(renderer, &w, &h);
+  if (w <= 0 || h <= 0)
+    return;
+
+  float target_width = static_cast<float>(w) * 0.75f;
+  float char_scale = target_width / (len * 6.0f);
+  if (char_scale <= 0.0f)
+    char_scale = 1.0f;
+  float char_width = 6.0f * char_scale;
+  float char_height = 7.0f * char_scale;
+  float start_x = (static_cast<float>(w) - char_width * len) * 0.5f;
+  float start_y = (static_cast<float>(h) - char_height) * 0.5f;
+
+  auto glyph = [](char c) -> const uint8_t* {
+    switch (c) {
+      case 'A': {
+        static const uint8_t g[7] = {0x0E, 0x11, 0x11, 0x1F, 0x11, 0x11, 0x00};
+        return g;
+      }
+      case 'B': {
+        static const uint8_t g[7] = {0x0F, 0x11, 0x0F, 0x11, 0x11, 0x0F, 0x00};
+        return g;
+      }
+      case 'C': {
+        static const uint8_t g[7] = {0x0E, 0x11, 0x01, 0x01, 0x11, 0x0E, 0x00};
+        return g;
+      }
+      case 'E': {
+        static const uint8_t g[7] = {0x1F, 0x01, 0x0F, 0x01, 0x01, 0x1F, 0x00};
+        return g;
+      }
+      case 'H': {
+        static const uint8_t g[7] = {0x11, 0x11, 0x1F, 0x11, 0x11, 0x11, 0x00};
+        return g;
+      }
+      case 'I': {
+        static const uint8_t g[7] = {0x0E, 0x04, 0x04, 0x04, 0x04, 0x0E, 0x00};
+        return g;
+      }
+      case 'N': {
+        static const uint8_t g[7] = {0x11, 0x13, 0x15, 0x19, 0x11, 0x11, 0x00};
+        return g;
+      }
+      case 'O': {
+        static const uint8_t g[7] = {0x0E, 0x11, 0x11, 0x11, 0x11, 0x0E, 0x00};
+        return g;
+      }
+      case 'P': {
+        static const uint8_t g[7] = {0x0F, 0x11, 0x0F, 0x01, 0x01, 0x01, 0x00};
+        return g;
+      }
+      case 'R': {
+        static const uint8_t g[7] = {0x0F, 0x11, 0x0F, 0x05, 0x09, 0x11, 0x00};
+        return g;
+      }
+      case 'T': {
+        static const uint8_t g[7] = {0x1F, 0x04, 0x04, 0x04, 0x04, 0x04, 0x00};
+        return g;
+      }
+      case 'U': {
+        static const uint8_t g[7] = {0x11, 0x11, 0x11, 0x11, 0x11, 0x0E, 0x00};
+        return g;
+      }
+      case ' ': {
+        static const uint8_t g[7] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+        return g;
+      }
+      default:
+        return nullptr;
+    }
+  };
+
+  SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
+  float x = start_x;
+  for (int i = 0; i < len; ++i) {
+    char c = static_cast<char>(std::toupper(static_cast<unsigned char>(text[i])));
+    const uint8_t* g = glyph(c);
+    if (!g) {
+      x += char_width;
+      continue;
+    }
+    for (int row = 0; row < 7; ++row) {
+      uint8_t bits = g[row];
+      for (int col = 0; col < 5; ++col) {
+        if (bits & (1u << col)) {
+          SDL_FRect px_rect{x + col * char_scale,
+                            start_y + row * char_scale,
+                            char_scale * 0.9f, char_scale * 0.9f};
+          SDL_RenderFillRect(renderer, &px_rect);
+        }
+      }
+    }
+    x += char_width;
+  }
 }
 
 // Audio track management (Audio track support)

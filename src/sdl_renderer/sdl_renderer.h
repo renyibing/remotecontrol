@@ -67,6 +67,9 @@ class SDLRenderer : public VideoTrackReceiver {
   // Get the SDL window pointer (for window minimization, etc.)
   SDL_Window* GetWindow() { return window_; }
 
+  bool IsFullScreen();
+  void SetFullScreen(bool fullscreen);
+
  protected:
   static constexpr int kAudioSampleRate = 48000;
   static constexpr size_t kAudioChannels = 2;
@@ -131,9 +134,8 @@ class SDLRenderer : public VideoTrackReceiver {
   };
 
  private:
-  bool IsFullScreen();
-  void SetFullScreen(bool fullscreen);
   void PollEvent();
+  void DrawHomageText(SDL_Renderer* renderer);
 
   webrtc::Mutex sinks_lock_;
   typedef std::vector<

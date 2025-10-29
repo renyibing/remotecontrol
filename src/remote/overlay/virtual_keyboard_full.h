@@ -3,8 +3,10 @@
 #define REMOTE_OVERLAY_VIRTUAL_KEYBOARD_FULL_H_
 
 #include <SDL3/SDL.h>
+#include <algorithm>
 #include <cctype>
 #include <functional>
+#include <numeric>
 #include <optional>
 #include <string>
 #include <vector>
@@ -41,8 +43,10 @@ static inline void VK_DrawGlyphFixed(SDL_Renderer* r,
 class VirtualKeyboardFull {
  public:
   using Sender = std::function<bool(const std::vector<uint8_t>&)>;
+  using HideCallback = std::function<void()>;
 
   void SetSender(Sender s) { sender_ = std::move(s); }
+  void SetHideCallback(HideCallback cb) { hide_callback_ = std::move(cb); }
   void SetOpacity(float a) {
     if (a < 0.f)
       a = 0.f;
@@ -51,22 +55,52 @@ class VirtualKeyboardFull {
     alpha_ = a;
   }
 
+  SDL_FRect GetKeyboardRect() const { return kb_rect_; }
+
+  // Lock key states
+  struct LockState {
+    bool caps_lock = false;
+    bool num_lock = false;
+    bool scroll_lock = false;
+  };
+
+  // Combo key definition
+  struct ComboKey {
+    std::vector<std::string> keys;
+    std::string command;
+  };
+
   // Call every frame. Draw after layout is determined.
   void Render(SDL_Renderer* r) {
     EnsureLayout(r);
     int w = 0, h = 0;
     SDL_GetRenderOutputSize(r, &w, &h);
-    float kb_height = h * 0.4f;
-    SDL_SetRenderDrawColor(r, 20, 20, 20, (Uint8)(alpha_ * 180));
-    SDL_FRect bg{6.0f, h - kb_height - 14.0f, (float)w - 12.0f,
-                 kb_height + 8.0f};
+    float margin = 10.0f;
+    float kb_width = w * 0.5f;
+    float kb_height = kb_width * 0.4f * (2.0f / 3.0f);
+    float kb_x = (w - kb_width) * 0.5f;
+    float kb_y = h - kb_height - margin;
+    SDL_SetRenderDrawColor(r, 0, 0, 0, (Uint8)(alpha_ * 80));
+    SDL_FRect bg{kb_x, kb_y, kb_width, kb_height + 8.0f};
+    kb_rect_ = bg;
     SDL_RenderFillRect(r, &bg);
     for (auto& k : keys_) {
-      if (k.pressed || (k.is_mod && mod_latched_ && (k.label == "Shift")))
-        SDL_SetRenderDrawColor(r, 140, 180, 240, (Uint8)(alpha_ * 255));
+      // Lock key highlight
+      bool is_locked = IsKeyLocked(k);
+      
+      if (k.pressed || is_locked)
+        SDL_SetRenderDrawColor(r, 140, 180, 240, (Uint8)(alpha_ * 200));
       else
-        SDL_SetRenderDrawColor(r, 200, 200, 200, (Uint8)(alpha_ * 255));
+        SDL_SetRenderDrawColor(r, 200, 200, 200, (Uint8)(alpha_ * 150));
       SDL_RenderFillRect(r, &k.rect);
+      
+      // Draw lock indicator
+      if (is_locked) {
+        SDL_SetRenderDrawColor(r, 255, 215, 0, (Uint8)(alpha_ * 220));  // Golden indicator
+        SDL_FRect indicator{k.rect.x + 2.0f, k.rect.y + 2.0f, 4.0f, 4.0f};
+        SDL_RenderFillRect(r, &indicator);
+      }
+      
       DrawKeyLabel(r, k);
     }
   }
@@ -77,49 +111,79 @@ class VirtualKeyboardFull {
       auto& k = keys_[i];
       if (!Inside(k.rect, x, y))
         continue;
-      // One-shot '_' and '|'
-      if (!k.is_mod && (k.label == "_" || k.label == "|")) {
-        if (k.label == "_")
-          SendComboUnderscore();
-        else
-          SendComboPipe();
+      
+      // Special X button to hide keyboard
+      if (k.is_special && k.label == "X") {
+        if (hide_callback_)
+          hide_callback_();
         return true;
       }
+      
+      // Lock keys: toggle state
+      if (k.label == "CapsLock") {
+        lock_state_.caps_lock = !lock_state_.caps_lock;
+        SendKeyToggle(k, lock_state_.caps_lock);
+        return true;
+      }
+      if (k.label == "NumLock") {
+        lock_state_.num_lock = !lock_state_.num_lock;
+        SendKeyToggle(k, lock_state_.num_lock);
+        return true;
+      }
+      if (k.label == "ScrollLock") {
+        lock_state_.scroll_lock = !lock_state_.scroll_lock;
+        SendKeyToggle(k, lock_state_.scroll_lock);
+        return true;
+      }
+      
+      // Modifier keys: toggle latch state (click to lock, click again to unlock)
       if (k.is_mod) {
-        if (k.label == "Shift") {
-          mod_latched_ = !mod_latched_;
-          k.pressed = mod_latched_;
-          if (mod_latched_)
-            SendDown(k);
-          else
-            SendUp(k);
+        k.pressed = !k.pressed;  // Toggle state
+        if (k.pressed) {
+          SendDown(k);
+          if (std::find(active_mods_.begin(), active_mods_.end(), i) ==
+              active_mods_.end())
+            active_mods_.push_back(i);
         } else {
-          k.pressed = !k.pressed;
-          if (k.pressed)
-            SendDown(k);
-          else
-            SendUp(k);
+          SendUp(k);
+          auto it = std::find(active_mods_.begin(), active_mods_.end(), i);
+          if (it != active_mods_.end())
+            active_mods_.erase(it);
         }
         return true;
       }
+      
+      // Normal keys: check combo and send
       SendDown(k);
       k.pressed = true;
       last_pressed_ = i;
+      
+      // Check if this triggers a combo
+      CheckAndTriggerCombo();
+      
       return true;
     }
     return false;
   }
 
   bool OnMouseUp(float, float) {
-    if (!last_pressed_.has_value())
-      return false;
-    int i = *last_pressed_;
-    if (i >= 0 && i < (int)keys_.size()) {
-      SendUp(keys_[i]);
-      keys_[i].pressed = false;
+    bool handled = false;
+    if (last_pressed_.has_value()) {
+      int i = *last_pressed_;
+      if (i >= 0 && i < (int)keys_.size()) {
+        auto& k = keys_[i];
+        // Only send Up for normal keys (not modifiers, not special)
+        if (!k.is_mod && !k.is_special) {
+          SendUp(k);
+          k.pressed = false;
+          handled = true;
+        }
+      }
+      last_pressed_.reset();
     }
-    last_pressed_.reset();
-    return true;
+    // Note: Modifiers are NOT auto-released here anymore
+    // They persist until clicked again or combo is triggered
+    return handled;
   }
 
  private:
@@ -129,17 +193,150 @@ class VirtualKeyboardFull {
     int code;
     bool is_mod{false};
     bool pressed{false};
+    bool is_special{false};
   };
 
   std::vector<Key> keys_;
   std::optional<int> last_pressed_{};
   int lw_{0}, lh_{0};
   float alpha_{0.85f};
-  bool mod_latched_{false};
   Sender sender_{};
+  HideCallback hide_callback_{};
+  SDL_FRect kb_rect_{};
+  std::vector<int> active_mods_{};
+  LockState lock_state_{};
+  
+  // Predefined combo keys
+  std::vector<ComboKey> combo_table_ = {
+      {{"Win", "R"}, "WIN_R"},
+      {{"Ctrl", "Alt", "Delete"}, "CTRL_ALT_DEL"},
+      {{"Ctrl", "Shift", "Escape"}, "CTRL_SHIFT_ESC"},
+      {{"Ctrl", "Escape"}, "CTRL_ESC"},
+      {{"Ctrl", "Shift", "Q"}, "CTRL_SHIFT_Q"},
+      {{"Ctrl", "Alt", "Q"}, "CTRL_ALT_Q"},
+      {{"Ctrl", "Alt", "X"}, "CTRL_ALT_X"},
+  };
 
   static bool Inside(const SDL_FRect& r, float x, float y) {
     return x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
+  }
+
+  // Check if a key is in locked state
+  bool IsKeyLocked(const Key& k) const {
+    if (k.label == "CapsLock")
+      return lock_state_.caps_lock;
+    if (k.label == "NumLock")
+      return lock_state_.num_lock;
+    if (k.label == "ScrollLock")
+      return lock_state_.scroll_lock;
+    return false;
+  }
+
+  // Check and trigger combo keys
+  void CheckAndTriggerCombo() {
+    if (active_mods_.empty())
+      return;
+    
+    // Build current pressed keys set
+    std::vector<std::string> pressed_keys;
+    for (int idx : active_mods_) {
+      if (idx >= 0 && idx < (int)keys_.size())
+        pressed_keys.push_back(keys_[idx].label);
+    }
+    if (last_pressed_.has_value()) {
+      int i = *last_pressed_;
+      if (i >= 0 && i < (int)keys_.size())
+        pressed_keys.push_back(keys_[i].label);
+    }
+    
+    // Match against combo table
+    for (const auto& combo : combo_table_) {
+      if (MatchCombo(pressed_keys, combo.keys)) {
+        // Trigger combo action
+        TriggerComboAction(combo.command);
+        // Release all modifiers after combo
+        ReleaseModifiers();
+        return;
+      }
+    }
+  }
+
+  // Match if pressed keys contain all combo keys
+  bool MatchCombo(const std::vector<std::string>& pressed,
+                  const std::vector<std::string>& combo) const {
+    if (combo.size() > pressed.size())
+      return false;
+    for (const auto& key : combo) {
+      bool found = false;
+      for (const auto& p : pressed) {
+        if (NormalizeKeyName(p) == NormalizeKeyName(key)) {
+          found = true;
+          break;
+        }
+      }
+      if (!found)
+        return false;
+    }
+    return true;
+  }
+
+  // Normalize key names for comparison
+  std::string NormalizeKeyName(const std::string& key) const {
+    std::string normalized = key;
+    if (normalized == "Control" || normalized == "CTRL")
+      return "Ctrl";
+    if (normalized == "GUI" || normalized == "WIN")
+      return "Win";
+    if (normalized == "SHFT")
+      return "Shift";
+    if (normalized == "ESC")
+      return "Escape";
+    if (normalized == "Del")
+      return "Delete";
+    return normalized;
+  }
+
+  // Trigger combo action (send special command or execute locally)
+  void TriggerComboAction(const std::string& command) {
+    // For now, just send a special keyboard message with the combo command
+    // The remote end can handle these special commands
+    if (!sender_)
+      return;
+    
+    remote::proto::KeyboardMsg km{};
+    km.key = "COMBO_" + command;
+    km.code = 0;
+    km.down = true;
+    km.mods = 0;
+    auto pb = remote::proto::PbSerializeKeyboard(km);
+    if (!pb.empty())
+      sender_(pb);
+    else
+      sender_(remote::proto::SerializeKeyboard(km));
+    
+    // Send key up immediately
+    km.down = false;
+    pb = remote::proto::PbSerializeKeyboard(km);
+    if (!pb.empty())
+      sender_(pb);
+    else
+      sender_(remote::proto::SerializeKeyboard(km));
+  }
+
+  // Send lock key toggle
+  void SendKeyToggle(const Key& k, bool state) {
+    if (!sender_)
+      return;
+    remote::proto::KeyboardMsg km{};
+    km.key = k.label;
+    km.code = k.code;
+    km.down = state;  // true = locked, false = unlocked
+    km.mods = 0;
+    auto pb = remote::proto::PbSerializeKeyboard(km);
+    if (!pb.empty())
+      sender_(pb);
+    else
+      sender_(remote::proto::SerializeKeyboard(km));
   }
 
   void EnsureLayout(SDL_Renderer* r) {
@@ -151,80 +348,117 @@ class VirtualKeyboardFull {
     lh_ = h;
     keys_.clear();
     float margin = 10.0f;
-    float kb_height = h * 0.4f;
-    float kb_y = h - kb_height - margin;
-    float kb_x = margin;
-    float kb_w = w - margin * 2.0f;
+    float kb_w = w * 0.5f;
+    float kb_height = kb_w * 0.4f * (2.0f / 3.0f);
+    float kb_y = static_cast<float>(h) - kb_height - margin;
+    float kb_x = (w - kb_w) * 0.5f;
     float unit = kb_w / 15.0f;
     float row_h = kb_height / 6.0f;
     float y = kb_y;
     auto add = [&](float x, float y, float uw, const std::string& label,
-                   int code, bool is_mod = false) {
+                   int code, bool is_mod = false, bool is_special = false) {
       keys_.push_back({SDL_FRect{x, y, uw * unit - 3.0f, row_h - 3.0f}, label,
-                       code, is_mod, false});
+                       code, is_mod, false, is_special});
     };
-    // Row 0: Esc + F1..F12
-    add(kb_x + 0 * unit, y, 1.2f, "Escape", 0, true);
-    for (int i = 0; i < 12; i++)
-      add(kb_x + (1.4f + i * 1.1f) * unit, y, 1.0f,
-          std::string("F") + std::to_string(i + 1), 0, false);
-    y += row_h;
-    // Row 1: ` 1..0 - = Backspace
-    add(kb_x + 0 * unit, y, 1.0f, "`", '`');
+
+    struct RowKey {
+      float uw;
+      std::string label;
+      int code;
+      bool is_mod;
+      bool is_special;
+    };
+
+    auto layout_row = [&](const std::vector<RowKey>& defs) {
+      if (defs.empty())
+        return;
+      float total_units = std::accumulate(defs.begin(), defs.end(), 0.0f,
+                                          [](float sum, const RowKey& key) {
+                                            return sum + key.uw;
+                                          });
+      const int count = static_cast<int>(defs.size());
+      float spacing_units = 0.0f;
+      if (count > 1)
+        spacing_units = (15.0f - total_units) / (count - 1);
+      float start_unit = 0.0f;
+      if (spacing_units < 0.0f) {
+        spacing_units = 0.0f;
+        start_unit = std::max(0.0f, (15.0f - total_units) * 0.5f);
+      }
+      float current = start_unit;
+      for (int i = 0; i < count; ++i) {
+        const auto& key = defs[i];
+        add(kb_x + current * unit, y, key.uw, key.label, key.code,
+            key.is_mod, key.is_special);
+        current += key.uw;
+        if (i != count - 1)
+          current += spacing_units;
+      }
+      y += row_h;
+    };
+
+    std::vector<RowKey> row0;
+    row0.push_back({1.0f, "Escape", 0, true, false});
+    for (int i = 0; i < 12; ++i)
+      row0.push_back({0.9f, std::string("F") + std::to_string(i + 1), 0, false,
+                      false});
+    row0.push_back({0.8f, "X", 0, false, true});
+    layout_row(row0);
+
+    std::vector<RowKey> row1;
+    row1.push_back({0.8f, std::string(1, '`'), '`', false, false});
     const char* nums = "1234567890";
-    for (int i = 0; i < 10; i++) {
-      std::string lab(1, nums[i]);
-      add(kb_x + (1.1f + i * 1.0f) * unit, y, 1.0f, lab, nums[i]);
-    }
-    add(kb_x + (11.2f) * unit, y, 1.0f, "-", '-');
-    add(kb_x + (12.2f) * unit, y, 1.0f, "=", '=');
-    add(kb_x + (13.3f) * unit, y, 1.7f, "Backspace", 0, true);
-    y += row_h;
-    // Row 2: Tab Q..P [ ] backslash
-    add(kb_x + 0 * unit, y, 1.6f, "Tab", 0, true);
+    for (int i = 0; i < 10; ++i)
+      row1.push_back({0.9f, std::string(1, nums[i]), nums[i], false, false});
+    row1.push_back({0.8f, "-", '-', false, false});
+    row1.push_back({0.8f, "=", '=', false, false});
+    row1.push_back({1.5f, "Backspace", 0, true, false});
+    row1.push_back({0.9f, "Delete", 0, true, false});
+    layout_row(row1);
+
+    std::vector<RowKey> row2;
+    row2.push_back({1.6f, "Tab", 0, true, false});
     const char* rowQ = "QWERTYUIOP";
-    for (int i = 0; i < 10; i++) {
-      std::string lab(1, rowQ[i]);
-      add(kb_x + (1.7f + i * 1.0f) * unit, y, 1.0f, lab, rowQ[i]);
-    }
-    add(kb_x + (11.8f) * unit, y, 1.0f, "[", '[');
-    add(kb_x + (12.8f) * unit, y, 1.0f, "]", ']');
-    add(kb_x + (13.8f) * unit, y, 1.2f, "\\", '\\');
-    y += row_h;
-    // Row 3: Caps A..L ; ' Enter
-    add(kb_x + 0 * unit, y, 1.8f, "CapsLock", 0, true);
+    for (int i = 0; i < 10; ++i)
+      row2.push_back({1.0f, std::string(1, rowQ[i]), rowQ[i], false, false});
+    row2.push_back({1.0f, "[", '[', false, false});
+    row2.push_back({1.0f, "]", ']', false, false});
+    row2.push_back({1.2f, "\\", '\\', false, false});
+    layout_row(row2);
+
+    std::vector<RowKey> row3;
+    row3.push_back({1.6f, "CapsLock", 0, true, false});
     const char* rowA = "ASDFGHJKL";
-    for (int i = 0; i < 9; i++) {
-      std::string lab(1, rowA[i]);
-      add(kb_x + (1.9f + i * 1.0f) * unit, y, 1.0f, lab, rowA[i]);
-    }
-    add(kb_x + (11.0f) * unit, y, 1.0f, ";", ';');
-    add(kb_x + (12.0f) * unit, y, 1.0f, "'", '\'');
-    add(kb_x + (13.1f) * unit, y, 2.0f, "Enter", 0, true);
-    y += row_h;
-    // Row 4: Shift Z..M , . / Shift
-    add(kb_x + 0 * unit, y, 2.3f, "Shift", 0, true);
+    for (int i = 0; i < 9; ++i)
+      row3.push_back({0.9f, std::string(1, rowA[i]), rowA[i], false, false});
+    row3.push_back({0.8f, ";", ';', false, false});
+    row3.push_back({0.8f, "'", '\'', false, false});
+    row3.push_back({1.8f, "Enter", 0, true, false});
+    row3.push_back({1.0f, "NumLock", 0, true, false});
+    layout_row(row3);
+
+    std::vector<RowKey> row4;
+    row4.push_back({2.0f, "Shift", 0, true, false});
     const char* rowZ = "ZXCVBNM";
-    for (int i = 0; i < 7; i++) {
-      std::string lab(1, rowZ[i]);
-      add(kb_x + (2.4f + i * 1.0f) * unit, y, 1.0f, lab, rowZ[i]);
-    }
-    add(kb_x + (9.4f) * unit, y, 1.0f, ",", ',');
-    add(kb_x + (10.4f) * unit, y, 1.0f, ".", '.');
-    add(kb_x + (11.4f) * unit, y, 1.0f, "/", '/');
-    add(kb_x + (12.5f) * unit, y, 2.5f, "Shift", 0, true);
-    y += row_h;
-    // Row 5: Ctrl Win Alt Space Alt Win Menu Ctrl '_' '|'
-    add(kb_x + 0 * unit, y, 1.5f, "Ctrl", 0, true);
-    add(kb_x + (1.6f) * unit, y, 1.2f, "Win", 0, true);
-    add(kb_x + (2.9f) * unit, y, 1.2f, "Alt", 0, true);
-    add(kb_x + (4.2f) * unit, y, 5.0f, "Space", ' ', false);
-    add(kb_x + (9.3f) * unit, y, 1.2f, "Alt", 0, true);
-    add(kb_x + (10.6f) * unit, y, 1.2f, "Win", 0, true);
-    add(kb_x + (11.9f) * unit, y, 1.0f, "Menu", 0, true);
-    add(kb_x + (13.2f) * unit, y, 0.8f, "Ctrl", 0, true);
-    add(kb_x + (14.05f) * unit, y, 0.45f, "_", '_', false);
-    add(kb_x + (14.55f) * unit, y, 0.45f, "|", '|', false);
+    for (int i = 0; i < 7; ++i)
+      row4.push_back({0.9f, std::string(1, rowZ[i]), rowZ[i], false, false});
+    row4.push_back({0.8f, ",", ',', false, false});
+    row4.push_back({0.8f, ".", '.', false, false});
+    row4.push_back({0.8f, "/", '/', false, false});
+    row4.push_back({2.2f, "Shift", 0, true, false});
+    row4.push_back({1.0f, "ScrollLock", 0, true, false});
+    layout_row(row4);
+
+    std::vector<RowKey> row5;
+    row5.push_back({1.5f, "Ctrl", 0, true, false});
+    row5.push_back({1.2f, "Win", 0, true, false});
+    row5.push_back({1.2f, "Alt", 0, true, false});
+    row5.push_back({5.0f, "Space", ' ', false, false});
+    row5.push_back({1.2f, "Alt", 0, true, false});
+    row5.push_back({1.2f, "Win", 0, true, false});
+    row5.push_back({1.0f, "Menu", 0, true, false});
+    row5.push_back({0.8f, "Ctrl", 0, true, false});
+    layout_row(row5);
   }
 
   // 5x7 font (A-Z, 0-9) and major symbols
@@ -438,8 +672,14 @@ class VirtualKeyboardFull {
       t = "ESC";
     else if (t == "Backspace")
       t = "BKSP";
+    else if (t == "Delete")
+      t = "DEL";
     else if (t == "CapsLock")
       t = "CAPS";
+    else if (t == "NumLock")
+      t = "NUM";
+    else if (t == "ScrollLock")
+      t = "SCRL";
     else if (t == "Control" || t == "Ctrl")
       t = "CTRL";
     else if (t == "GUI" || t == "Win")
@@ -508,37 +748,17 @@ class VirtualKeyboardFull {
     else
       sender_(remote::proto::SerializeKeyboard(km));
   }
-  void SendCharClick(char c) {
-    if (!sender_)
-      return;
-    std::string lab(1, c);
-    remote::proto::KeyboardMsg kd{};
-    kd.key = lab;
-    kd.code = (int)c;
-    kd.down = true;
-    kd.mods = 0;
-    remote::proto::KeyboardMsg ku = kd;
-    ku.down = false;
-    auto pbd = remote::proto::PbSerializeKeyboard(kd);
-    if (!pbd.empty())
-      sender_(pbd);
-    else
-      sender_(remote::proto::SerializeKeyboard(kd));
-    auto pbu = remote::proto::PbSerializeKeyboard(ku);
-    if (!pbu.empty())
-      sender_(pbu);
-    else
-      sender_(remote::proto::SerializeKeyboard(ku));
-  }
-  void SendComboUnderscore() {
-    SendShift(true);
-    SendCharClick('-');
-    SendShift(false);
-  }
-  void SendComboPipe() {
-    SendShift(true);
-    SendCharClick((char)92);
-    SendShift(false);
+  void ReleaseModifiers() {
+    for (int idx : active_mods_) {
+      if (idx >= 0 && idx < (int)keys_.size()) {
+        auto& mk = keys_[idx];
+        if (mk.pressed) {
+          SendUp(mk);
+          mk.pressed = false;
+        }
+      }
+    }
+    active_mods_.clear();
   }
 };
 

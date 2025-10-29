@@ -456,41 +456,8 @@ int main(int argc, char* argv[]) {
                                            const std::string& cmd, bool value) {
           (void)value;
           if (cmd == "fullscreen") {
-            // Send Ctrl+Alt+Shift+F combination key to switch to full screen
-            SDL_Event mod_down{};
-            mod_down.type = SDL_EVENT_KEY_DOWN;
-            mod_down.key.mod = SDL_KMOD_CTRL | SDL_KMOD_ALT | SDL_KMOD_SHIFT;
-
-            // Press the modifier key
-            mod_down.key.key = SDLK_LCTRL;
-            SDL_PushEvent(&mod_down);
-            mod_down.key.key = SDLK_LALT;
-            SDL_PushEvent(&mod_down);
-            mod_down.key.key = SDLK_LSHIFT;
-            SDL_PushEvent(&mod_down);
-
-            // Press and release the F key
-            SDL_Event f_down{};
-            f_down.type = SDL_EVENT_KEY_DOWN;
-            f_down.key.key = SDLK_F;
-            f_down.key.mod = SDL_KMOD_CTRL | SDL_KMOD_ALT | SDL_KMOD_SHIFT;
-            SDL_PushEvent(&f_down);
-
-            SDL_Event f_up{};
-            f_up.type = SDL_EVENT_KEY_UP;
-            f_up.key.key = SDLK_F;
-            f_up.key.mod = SDL_KMOD_CTRL | SDL_KMOD_ALT | SDL_KMOD_SHIFT;
-            SDL_PushEvent(&f_up);
-
-            // Release the modifier key
-            SDL_Event mod_up{};
-            mod_up.type = SDL_EVENT_KEY_UP;
-            mod_up.key.key = SDLK_LSHIFT;
-            SDL_PushEvent(&mod_up);
-            mod_up.key.key = SDLK_LALT;
-            SDL_PushEvent(&mod_up);
-            mod_up.key.key = SDLK_LCTRL;
-            SDL_PushEvent(&mod_up);
+            if (rc)
+              rc->SetFullScreen(!rc->IsFullScreen());
           } else if (cmd == "minimize") {
             // Minimize the window
             if (rc && rc->GetWindow()) {
