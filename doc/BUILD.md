@@ -3,7 +3,7 @@
 First, download the Momo repository.
 
 ```bash
-git clone https://github.com/shiguredo/momo.git
+git clone https://github.com/renyibing/remotecontrol.git
 ```
 
 ## Prerequisites (Windows)
