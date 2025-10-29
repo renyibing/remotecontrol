@@ -1,4 +1,47 @@
-# WebRTC Native Client Momo
+# WebRTC Native Client Momo Remote Control
+
+This project is based on the original repository https://github.com/shiguredo,
+modified by [Bob Haskins] for additional features and optimizations.
+Licensed under the Apache License 2.0.
+
+Project Update & Acknowledgment
+
+First of all, I would like to express my sincere gratitude to the momo team for their outstanding open-source contribution.
+This project is based on the original momo source code and has been further developed and extended to support remote control and interaction features.
+
+🔧 Overview of Modifications
+
+The SDL side is defined as the receiver.
+
+The sender side captures the screen, encodes, and transmits audio and video data to the receiver in real time.
+
+The receiver uses SDL’s input control system to interact with and control the remote sender’s computer.
+
+Supported input devices include:
+
+Keyboard
+
+Mouse (including mouse image display)
+
+Game controller
+
+Touch input
+
+🌐 Communication Modes
+
+P2P Mode
+
+Enables direct peer-to-peer communication within a local network (LAN).
+
+Provides low-latency streaming and control without a relay server.
+
+Relay Mode (via Ayame Signaling Server)
+
+By deploying an Ayame signaling server, users can enable relay communication over the public internet.
+
+Utilizes WebRTC’s STUN/NAT traversal for seamless connectivity across different network environments.
+
+Allows users to remotely control their own computers securely over the internet.
 
 [![libwebrtc](https://img.shields.io/badge/libwebrtc-m138.7204-blue.svg)](https://chromium.googlesource.com/external/webrtc/+/branch-heads/7204)
 [![GitHub tag (latest SemVer)](https://img.shields.io/github/tag/shiguredo/momo.svg)](https://github.com/shiguredo/momo)
@@ -11,150 +54,146 @@ We will not respond to PRs or issues that have not been discussed on Discord. Al
 
 Please read <https://github.com/shiguredo/oss/blob/master/README.en.md> before use.
 
-## 時雨堂のオープンソースソフトウェアについて
+## About Shiguredo's Open Source Software
 
-利用前に <https://github.com/shiguredo/oss> をお読みください。
+Please read <https://github.com/shiguredo/oss> before using.
 
-## WebRTC Native Client Momo について
+## About WebRTC Native Client Momo
 
-WebRTC Native Client Momo は libwebrtc を利用しブラウザなしで様々な環境で動作する WebRTC ネイティブクライアントです。
+WebRTC Native Client Momo is a WebRTC native client that uses libwebrtc and operates in a variety of environments without a browser.
 
 <https://momo.shiguredo.jp/>
 
-### ハードウェアアクセラレーターへの対応
+### Hardware Accelerator Support
 
-- [Raspberry Pi](https://www.raspberrypi.org/) の GPU に積まれているハードウェアアクセラレーター機能を V4L2 M2M 経由で利用することができます
-  - ハードウェアエンコーダー: H.264
-  - ハードウェアデコーダー: H.264
-  - Raspberry Pi 5 では H.264 ハードウェアアクセラレーターが搭載されていないため利用できません
-- Apple macOS に搭載されているハードウェアアクセラレーター機能を [Apple VideoToolbox](https://developer.apple.com/documentation/videotoolbox) 経由で利用することができます
-  - ハードウェアエンコーダー: H.264 / H.265
-  - ハードウェアデコーダー: H.264 / H.265
-- NVIDIA グラフィックスカードに搭載されているハードウェアアクセラレーター機能を [NVIDIA Video Codec](https://developer.nvidia.com/nvidia-video-codec-sdk) 経由で利用することができます
-  - ハードウェアエンコーダー: VP9 / AV1 / H.264 / H.265
-  - ハードウェアデコーダー: VP9 / AV1 / H.264 / H.265
-- Intel グラフィックスチップに搭載されているハードウェアアクセラレーター機能を [Intel VPL](https://www.intel.com/content/www/us/en/developer/tools/vpl/overview.html) 経由で Windows x86_64 と Ubuntu x86_64 にてハードウェアアクセラレーター機能を利用することが可能です
-  - ハードウェアエンコーダー: VP9 / AV1 / H.264 / H.265
-  - ハードウェアデコーダー: VP9 / AV1 / H.264 / H.265
-- [NVIDIA Jetson](https://www.nvidia.com/ja-jp/autonomous-machines/embedded-systems/) に搭載されているハードウェアアクセラレーター機能を [Jetson JetPack SDK](https://developer.nvidia.com/embedded/jetpack) 経由で利用することができます
-  - ハードウェアエンコーダー: VP9 / AV1 / H.264 / H.265
-  - ハードウェアデコーダー: VP9 / AV1 / H.264 / H.265
+- You can use the hardware accelerator features built into the Raspberry Pi GPU via V4L2 M2M.
+- Hardware Encoder: H.264
+- Hardware Decoder: H.264
+- The Raspberry Pi 5 does not support H.264 hardware acceleration because it does not have one.
+- You can use the hardware accelerator features built into Apple macOS via Apple Video Toolbox.
+- Hardware Encoder: H.264 / H.265
+- Hardware Decoder: H.264 / H.265
+- You can use the hardware accelerator features built into NVIDIA graphics cards via NVIDIA Video Codec. You can use the hardware accelerator functions built into Intel graphics chips via [Intel VPL](https://www.intel.com/content/www/us/en/developer/tools/vpl/overview.html) on Windows x86_64 and Ubuntu x86_64.
+- Hardware Encoder: VP9 / AV1 / H.264 / H.265
+- Hardware Decoder: VP9 / AV1 / H.264 / H.265
+- Hardware Accelerator functions built into [NVIDIA Jetson](https://www.nvidia.com/en-us/autonomous-machines/embedded-systems/) are available via [Jetson JetPack](https://www.nvidia.com/en-us/autonomous-machines/embedded-systems/) on Windows x86_64 and Ubuntu x86_64. It can be used via the SDK.
+- Hardware Encoder: VP9 / AV1 / H.264 / H.265
+- Hardware Decoder: VP9 / AV1 / H.264 / H.265
 
-### P2P モード
+### P2P Mode
 
-Momo は Momo 自体がシグナリングサーバーを持っているため、完全な P2P モードでの利用ができます。
+Momo has its own signaling server, so it can be used in full P2P mode.
 
-ブラウザから Momo にアクセスするだけで利用することができます。
+You can use it simply by accessing Momo from your browser.
 
-### Ayame モード
+### Ayame Mode
 
 [OpenAyame](https://github.com/OpenAyame)
 
-Momo は WebRTC Signaling サーバーである Ayame に対応したモードがあり、 Momo 同士での利用もできます。
+Momo has a mode that supports the Ayame WebRTC signaling server, and can also be used between Momos.
 
-### Raspberry Pi の libcamera に対応
+### Supports Raspberry Pi libcamera
 
-[raspberrypi/libcamera](https://github.com/raspberrypi/libcamera) に対応しています。
+Supports [raspberrypi/libcamera](https://github.com/raspberrypi/libcamera).
 
-詳細は [LIBCAMERA.md](doc/LIBCAMERA.md) をご確認ください。
+For details, see [LIBCAMERA.md](doc/LIBCAMERA.md).
 
-### 120 fps 対応
+### 120 fps Support
 
-Momo はカメラの無圧縮映像に対応しているため、ハードウェアエンコーダーを利用することで 120 fps の配信が利用できます。
+Momo supports uncompressed camera video, allowing 120 fps streaming by using a hardware encoder.
 
-### 4K の配信/視聴
+### 4K Streaming/Viewing
 
-Momo はハードウェアアクセラレーターを利用することで WebRTC で 4K の配信/視聴を利用できます。
+Momo supports 4K streaming/viewing via WebRTC by using a hardware accelerator.
 
-### サイマルキャストへの対応
+### Simulcast Support
 
-Momo は Sora モード利用時にサイマルキャスト（複数画質の同時配信）に対応しています。
+Momo supports simulcast (simultaneous streaming of multiple image qualities) when using Sora mode.
 
-### データチャネル経由でのシリアルの読み書き
+### Serial Reading/Writing via Data Channel
 
-Momo はデータチャネルを利用しシリアルに直接読み書きが可能です。信頼性より低遅延を優先したい場合の利用を想定しています。
+Momo supports direct serial reading and writing using the data channel. This is intended for use when low latency is prioritized over reliability.
 
-### SDL を利用した音声や映像の受信
+### Receiving Audio and Video Using SDL
 
-Momo を GUI 環境で利用した場合、[Simple DirectMedia Layer](https://www.libsdl.org/) を利用して音声や映像の受信を行うことができます。
+When using Momo in a GUI environment, you can receive audio and video using the [Simple DirectMedia Layer](https://www.libsdl.org/).
 
-### H.265 (HEVC) への対応
+### H.265 (HEVC) Support
 
-ハードウェアアクセラレーターを利用した H.265 の送受信に対応済みです。
+Support for sending and receiving H.265 using hardware acceleration is already available.
 
-### AV1 への対応
+### AV1 Support
 
-AV1 の送受信に対応済みです。
+Support for sending and receiving AV1 is already available.
 
-### YUY2 や NV12 への対応
+### YUY2 and NV12 Support
 
-Momo は YUY2 や NV12 といった無圧縮のフォーマットに対応しています。
+Momo supports uncompressed formats such as YUY2 and NV12.
 
-### クライアント証明書への対応
+### Client Certificate Support
 
-Momo は Sora モード利用時にクライアント証明書に対応しています。
+Momo supports client certificates when using Sora mode.
 
-### OpenH264 の利用
+### Using OpenH264
 
-Momo は OpenH264 を利用して H.264 のソフトウェアのエンコード/デコードを行うことができます。
+Momo can perform software encoding and decoding of H.264 using OpenH264.
 
-## 動画
+## Video
 
-[WebRTC Native Client Momo と Jetson Nano で 4K@30 配信](https://www.youtube.com/watch?v=z05bWtsgDPY)
+[4K@30 Streaming with WebRTC Native Client Momo and Jetson Nano](https://www.youtube.com/watch?v=z05bWtsgDPY)
 
-## OpenMomo プロジェクトについて
+## About the OpenMomo Project
 
-OpenMomo は WebRTC Native Client Momo をオープンソースとして公開し継続的に開発を行っていくプロジェクトです。
-ブラウザやスマートフォン以外からの WebRTC をいろいろな用途で使ってもらえればと思っています。
+OpenMomo is a project that releases the WebRTC Native Client Momo as open source and continues to develop it.
+We hope that it will enable the use of WebRTC for a variety of purposes beyond browsers and smartphones.
 
-詳細については下記をご確認ください。
+For more details, please see below.
 
-[OpenMomo プロジェクト](https://gist.github.com/voluntas/51c67d0d8ce7af9f24655cee4d7dd253)
+[OpenMomo Project](https://gist.github.com/voluntas/51c67d0d8ce7af9f24655cee4d7dd253)
 
-また Momo についてのつぶやきは以下にまとめてあります。
+Tweets about Momo are also summarized below.
 
 <https://gist.github.com/voluntas/51c67d0d8ce7af9f24655cee4d7dd253#twitter>
 
-## 既知の問題について
+## Known Issues
 
-[既知の問題に対する解決方針](https://github.com/shiguredo/momo/issues/89)
+[Resolution Policy for Known Issues](https://github.com/shiguredo/momo/issues/89)
 
-## バイナリ提供について
+## Binary Provision
 
-以下からダウンロードが可能です。
-
+You can download it from the link below.
 <https://github.com/shiguredo/momo/releases>
 
-## 動作環境
+## Operating environment
 
 - Windows 11 x86_64
 - macOS 15 arm64
 - macOS 14 arm64
 - Ubuntu 24.04 x86_64
 - Ubuntu 22.04 x86_64
-- Ubuntu 22.04 ARMv8 (NVIDIA Jetson JetPack 6)
-  - [NVIDIA Jetson AGX Orin](https://www.nvidia.com/ja-jp/autonomous-machines/embedded-systems/jetson-orin/)
-  - [NVIDIA Jetson Orin NX](https://www.nvidia.com/ja-jp/autonomous-machines/embedded-systems/jetson-orin/)
-- Raspberry Pi OS bookworm (64bit)
-  - Raspberry Pi 5
-  - Raspberry Pi 4
-  - Raspberry Pi 3
-  - Raspberry Pi 2 Model B v1.2
-  - Raspberry Pi Zero 2 W
+- Ubuntu 22.04 ARMv8 (NVIDIA Jetson JetPack 6) 
+- [NVIDIA Jetson AGX Orin](https://www.nvidia.com/ja-jp/autonomous-machines/embedded-systems/jetson-orin/) 
+- [NVIDIA Jetson Orin NX](https://www.nvidia.com/ja-jp/autonomous-machines/embedded-systems/jetson-orin/)
+- Raspberry Pi OS bookworm (64bit) 
+- Raspberry Pi 5 
+- Raspberry Pi 4 
+- Raspberry Pi 3
+- Raspberry Pi 2 Model B v1.2
+- Raspberry Pi Zero 2 W
 
-## 使ってみる
+## Getting Started
 
-Momo を使ってみたい人は [USE.md](doc/USE.md) をお読みください。
+If you would like to use Momo, please read [USE.md](doc/USE.md).
 
-## ビルドする
+## Building
 
-- Momo をビルドしたい、またはパッケージ作成したい人は [BUILD.md](doc/BUILD.md) をお読みください
+- If you would like to build or package Momo, please read [BUILD.md](doc/BUILD.md).
 
 ## FAQ
 
-[FAQ.md](doc/FAQ.md) をお読みください。
+Please read [FAQ.md](doc/FAQ.md).
 
-## ライセンス
+## License
 
 Apache License 2.0
 
@@ -164,16 +203,16 @@ Copyright 2018-2025, Shiguredo Inc.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
+You may obtain a copy of the License at 
 
-    http://www.apache.org/licenses/LICENSE-2.0
+http://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either expressed or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
-```
+````
 
 ## OpenH264
 
@@ -183,56 +222,56 @@ limitations under the License.
 "OpenH264 Video Codec provided by Cisco Systems, Inc."
 ```
 
-## 優先実装
+## Priority Implementation
 
-優先実装とは Sora のライセンスを契約頂いているお客様限定で Momo の実装予定機能を有償にて前倒しで実装することです。
+Priority implementation refers to the early implementation of features planned for Momo, available exclusively to Sora licensees, for a fee.
 
-- Windows 版 OSS 化
-  - [スロースネットワークス株式会社](http://www.sloth-networks.co.jp) 様
-- WebRTC の Statistics 対応
-  - 現時点では企業名非公開
-- Windows 版 Momo NVIDIA Video Codec 対応
-  - [スロースネットワークス株式会社](http://www.sloth-networks.co.jp) 様
-- Linux 版 Momo NVIDIA Video Codec 対応
-  - [株式会社オプティム](https://www.optim.co.jp/) 様
-- Windows / Linux 版 スクリーンキャプチャ対応
-  - [スロースネットワークス株式会社](http://www.sloth-networks.co.jp) 様
+- Windows version open source
+- [Sloth Networks, Inc.](http://www.sloth-networks.co.jp)
+- WebRTC Statistics support
+- Company name not disclosed at this time
+- Windows version of Momo with NVIDIA Video Codec support
+- [Sloth Networks, Inc.](http://www.sloth-networks.co.jp)
+- Linux version of Momo with NVIDIA Video Codec support
+- [OPTiM Corporation](https://www.optim.co.jp/)
+- Windows/Linux version screen capture support
+- [Sloth Networks, Inc.](http://www.sloth-networks.co.jp)
 
-### 優先実装が可能な機能一覧
+### List of features available for priority implementation
 
-**こちらに掲載していない機能でも対応できる場合がありますのでまずはお問い合わせください**
+**Features not listed here may be supported, so please contact us first.**
 
 - Windows 11 arm64
 - Ubuntu 20.04 arm64 (NVIDIA Jetson JetPack 5)
 
-## Momo についての電子書籍
+## E-book about Momo
 
-Momo の原作者である @tnoho が書いた Momo のノウハウがたくさん詰まった本が販売されています。
+Momo A book packed with Momo know-how, written by @tnoho, the original author of "Momo," is now on sale.
 
-[WebRTC をブラウザ外で使ってブラウザでできることを増やしてみませんか?\(電子版\) \- でんでんらぼ \- BOOTH](https://tnoho.booth.pm/items/1572872)
+[Why not use WebRTC outside the browser to expand what you can do with it? \(Digital Edition\) \- DenDen Lab \- BOOTH](https://tnoho.booth.pm/items/1572872)
 
-## サポートについて
+## Support
 
 ### Discord
 
-- **サポートしません**
-- アドバイスします
-- フィードバック歓迎します
+- **No support**
+- Advice provided
+- Feedback welcome
 
-最新の状況などは Discord で共有しています。質問や相談も Discord でのみ受け付けています。
+The latest status updates are shared on Discord. Questions and inquiries are also accepted only through Discord.
 
 <https://discord.gg/shiguredo>
 
-### バグ報告
+### Bug Reports
 
-Discord へお願いします。
+Please report via Discord.
 
-### 有料でのテクニカルサポートについて
+### Paid Technical Support
 
-WebRTC Native Client に対する有料でのテクニカルサポート契約については WebRTC SFU Sora ライセンス契約をしているお客様が前提となります。
+Paid technical support for WebRTC Native Client is available only to customers who have a WebRTC SFU Sora license agreement.
 
-- Momo のテクニカルサポート
-- OSS 公開前提での Momo への機能追加
+- Momo Technical Support
+- Adding features to Momo with the intention of releasing them as open source software
 
 ## NVIDIA Video Codec
 
@@ -242,44 +281,41 @@ WebRTC Native Client に対する有料でのテクニカルサポート契約�
 “This software contains source code provided by NVIDIA Corporation.”
 ```
 
-## H.264 のライセンス費用について
+## About H.264 License Fees
 
-H.264 ハードウェアエンコーダー **のみ** を利用している Momo 単体の配布においてはライセンス費用は不要ですが、
-ハードウェアとセットで配布する場合はライセンス費用を支払う必要があります。
+Distributing Momo by itself, which uses only the H.264 hardware encoder, does not require a license fee.
+However, distributing it with hardware requires a license fee.
 
-ただし、 Raspberry Pi においては H.264 のライセンスがハードウェア費用に含まれているため、
-配布時にライセンス費用を支払う必要はありません。
+However, for Raspberry Pi, the H.264 license is included in the hardware cost, so no license fee is required.
 
-詳細については [Via LA Licensing](https://www.via-la.com/) まで問い合わせることをおすすめします。
+For details, we recommend contacting [Via LA Licensing](https://www.via-la.com/).
 
-Momo の H.264 対応は [Via LA Licensing](https://www.via-la.com/) (旧 MPEG-LA) に連絡を取り、ロイヤリティの対象にならないことを確認しています。
+We have contacted Via LA Licensing (formerly MPEG-LA) and confirmed that Momo's H.264 support is not subject to royalties.
 
-> 時雨堂がエンドユーザーの PC /デバイスに既に存在する AVC / H.264 エンコーダー/デコーダーに依存する製品を提供する場合は、
-> ソフトウェア製品は AVC ライセンスの対象外となり、ロイヤリティの対象にもなりません。
+> If Shiguredo provides a product that relies on an AVC/H.264 encoder/decoder already present on the end user's PC/device,
+> the software product will not be subject to the AVC license and will not be eligible for royalties.
 
-- Raspberry Pi のハードウェアエンコーダーのライセンス費用は Raspberry Pi の価格に含まれています
-  - <https://www.raspberrypi.org/forums/viewtopic.php?t=200855>
-- Apple のライセンス費用は個人利用および非商用利用目的に限るため、配布においては別途、団体との契約が必要
-  - <https://store.apple.com/Catalog/Japan/Images/EA0270_QTMPEG2.html>
-- AMD ビデオカードのハードウェアエンコーダーのライセンス費用は別途、団体との契約が必要
-  - <https://github.com/GPUOpen-LibrariesAndSDKs/AMF/blob/master/amf/doc/AMF_API_Reference.pdf>
-- NVIDIA ビデオカードのハードウェアエンコーダーのライセンス費用は別途、団体との契約が必要
-  - <https://developer.download.nvidia.com/designworks/DesignWorks_SDKs_Samples_Tools_License_distrib_use_rights_2017_06_13.pdf>
-- NVIDIA Jetson Nano のハードウェアエンコーダーのライセンス費用は別途、団体との契約が必要
-  - [NVIDIA Jetson Nano 搭載の H\.264/H\.265 ハードウェアエンコーダーのライセンスについて](https://medium.com/@voluntas/nvidia-jetson-nano-%E6%90%AD%E8%BC%89%E3%81%AE-h-264-h-265-%E3%83%8F%E3%83%BC%E3%83%89%E3%82%A6%E3%82%A7%E3%82%A2%E3%82%A8%E3%83%B3%E3%82%B3%E3%83%BC%E3%83%80%E3%81%AE%E3%83%A9%E3%82%A4%E3%82%BB%E3%83%B3%E3%82%B9%E3%81%AB%E3%81%A4%E3%81%84%E3%81%A6-ca207af302ee)
-- Intel Quick Sync Video のハードウェアエンコーダーライセンス費用は別途、団体との契約が必要
-  - [QuickSync \- H\.264 patent licensing fees \- Intel Community](https://community.intel.com/t5/Media-Intel-oneAPI-Video/QuickSync-H-264-patent-licensing-fees/td-p/921396)
+- The license fee for the Raspberry Pi hardware encoder is included in the price of the Raspberry Pi.
+- <https://www.raspberrypi.org/forums/viewtopic.php?t=200855>
+- Apple's license fee is limited to personal and non-commercial use; distribution requires a separate agreement with an organization.
+- <https://store.apple.com/Catalog/Japan/Images/EA0270_QTMPEG2.html>
+- The license fee for the AMD video card hardware encoder requires a separate agreement with an organization.
+- <https://github.com/GPUOpen-LibrariesAndSDKs/AMF/blob/master/amf/doc/AMF_API_Reference.pdf>
+- The license fee for the NVIDIA video card hardware encoder requires a separate agreement with an organization.
+- <https://developer.download.nvidia.com/designworks/DesignWorks_SDKs_Samples_Tools_License_distrib_use_rights_2017_06_13.pdf>
+- The license fee for the NVIDIA Jetson Nano hardware encoder requires a separate contract with your organization.
+- [About the H.264/H.265 Hardware Encoder License for the NVIDIA Jetson Nano](https://medium.com/@voluntas/nvidia-jetson-nano-%E6%90%AD%E8%BC%89%E3%81%AE-h-264-h-265-%E3%83%8F%E3%83%BC%E3%83%89%E3%82%A6%E3%82%A7% E3%82%A2%E3%82%A8%E3%83%B3%E3%82%B3%E3%83%BC%E3%83%80%E3%81%AE%E3%83%A9%E3%82% A4%E3%82%BB%E3%83%B3%E3%82%B9%E3%81%AB%E3%81%A4%E3%81%84%E3%81%A6-ca207af302ee)
+- The Intel Quick Sync Video hardware encoder license fee requires a separate agreement with an organization.
+- [QuickSync \- H\.264 patent licensing fees \- Intel Community](https://community.intel.com/t5/Media-Intel-oneAPI-Video/QuickSync-H-264-patent-licensing-fees/td-p/921396)
 
-## H.265 のライセンス費用について
+## About H.265 License Fees
 
-H.265 ハードウェアエンコーダー **のみ** を利用している Momo 単体の配布においてはライセンス費用は不要ですが、
-ハードウェアとセットで配布する場合はライセンス費用を支払う必要があります。
+Distributing Momo using only the H.265 hardware encoder does not require a license fee.
+However, distributing it with hardware requires a license fee.
 
-Momo の H.265 対応は以下の二つの団体に連絡を取り、H.265 ハードウェアアクセラレーターのみを利用し、
-H.265 が利用可能なバイナリを配布することは、ライセンスが不要であることを確認しています。
+We have contacted the following two organizations regarding Momo's H.265 support and have confirmed that distributing binaries that use only the H.265 hardware accelerator does not require a license.
 
-また、H.265 のハードウェアアクセラレーターのみを利用した H.265 対応の Momo を OSS で公開し、
-ビルド済みバイナリを配布することは、ライセンスが不要であることも確認しています。
+We have also confirmed that releasing Momo, which supports H.265 and utilizes only the H.265 hardware accelerator, as open source and distributing pre-built binaries does not require a license.
 
 - [Access Advance](https://accessadvance.com/ja/)
 - [Via LA Licensing](https://www.via-la.com/)

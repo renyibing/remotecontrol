@@ -1,0 +1,6 @@
+# Simply look at CLI11_ROOT_DIR.
+if (NOT TARGET CLI11::CLI11)
+  add_library(CLI11::CLI11 INTERFACE IMPORTED)
+  set_target_properties(CLI11::CLI11 PROPERTIES
+    INTERFACE_INCLUDE_DIRECTORIES "${CLI11_ROOT_DIR}/include")
+endif()
