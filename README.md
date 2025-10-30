@@ -1,55 +1,79 @@
-# WebRTC Native Client Momo Remote Control
+🌐 WebRTC Native Client Momo – Remote Control & Cloud Interaction
 
-This project is based on the original repository https://github.com/shiguredo,
-modified by [Bob Haskins] for additional features and optimizations.
-Licensed under the Apache License 2.0.
+Next-Gen AI-Enabled Remote Interaction Platform
+Built upon Shiguredo Momo
+ and enhanced by Bob Haskins
+Licensed under the Apache License 2.0
 
-Project Update & Acknowledgment
+🚀 Project Vision
 
-First of all, I would like to express my sincere gratitude to the momo team for their outstanding open-source contribution.
-This project is based on the original momo source code and has been further developed and extended to support remote control and interaction features.
+Momo Remote Control extends the original WebRTC Native Client Momo into a new-generation AI-ready remote computing platform that enables:
 
-🔧 Overview of Modifications
+Ultra-low-latency remote desktops and cloud gaming
 
-## 🎹 Keyboard Hook Integration (New Feature)
+AI-driven workflow automation (connect n8n / Dify / AutoGen / Coze etc.)
 
-This project integrates **libuiohook**, implementing intelligent keyboard interception functionality:
-- **Automatic Interception**: Automatically intercepts all keyboard input when the mouse focus moves within the SDL window.
-- **Automatic Release**: Automatically releases keyboard input when the mouse moves out of the SDL window.
-- **Cross-Platform Support**: Windows, macOS, Linux
-For detailed documentation, please refer to [doc/KEYBOARD_HOOK.md](doc/KEYBOARD_HOOK.md)
----
-The SDL side is defined as the receiver.
+Edge AI and Cloud Rendering for creative and industrial applications
 
-The sender side captures the screen, encodes, and transmits audio and video data to the receiver in real time.
+Cross-platform interactive streaming for Windows, macOS, Linux, Android, iOS
 
-The receiver uses SDL’s input control system to interact with and control the remote sender’s computer.
+This project explores the future of AI-powered remote collaboration, cloud computer rentals, and intelligent virtual desktops.
 
-Supported input devices include:
+🙏 Acknowledgment
 
-Keyboard
+Special thanks to the Shiguredo Momo team for their pioneering open-source work on WebRTC Native Client Momo.
+This fork continues their spirit of innovation while extending capabilities into interactive and intelligent remote-control applications.
 
-Mouse (including mouse image display)
+🧠 AI & Monetization Ecosystem
 
-Game controller
+The project is designed to evolve toward AI integrated remote computing and cloud service monetization:
 
-Touch input
+💻 Cloud Desktop Rental (SaaS) – Provide on-demand GPU/CPU desktops for AI creators or gamers.
 
-🌐 Communication Modes
+🤖 AI Agent Integration – Embed AutoGen / Coze / Dify agents directly into the remote environment for task automation.
 
-P2P Mode
+🎮 Cloud Gaming Platform – Offer low-latency game streaming for PC and mobile devices.
 
-Enables direct peer-to-peer communication within a local network (LAN).
+💰 Usage-based Billing & Marketplace Models – Per-minute billing, template marketplaces, workflow subscriptions.
 
-Provides low-latency streaming and control without a relay server.
+🧩 Web Embedding / SDK API – Developers can integrate the remote session engine into their AI apps or websites.
 
-Relay Mode (via Ayame Signaling Server)
+🔧 Core Technical Enhancements
+🎹 Keyboard Hook Integration (New Feature)
 
-By deploying an Ayame signaling server, users can enable relay communication over the public internet.
+Integrated libuiohook for intelligent keyboard interception and input mapping:
 
-Utilizes WebRTC’s STUN/NAT traversal for seamless connectivity across different network environments.
+Automatic Focus Detection – Activates when the SDL window has mouse focus.
 
-Allows users to remotely control their own computers securely over the internet.
+Automatic Release – Disengages on focus loss.
+
+Cross-Platform Support – Windows / macOS / Linux
+
+See 📄 doc/KEYBOARD_HOOK.md
+
+🖥️ Architecture Overview
+
+Sender → Captures screen + encodes audio/video → transmits via WebRTC
+
+Receiver (SDL) → Decodes stream + controls remote input devices
+
+Supported input devices:
+✅ Keyboard ✅ Mouse (with cursor rendering) ✅ Gamepad / Controller ✅ Touch Input
+
+🌍 Communication Modes
+🟢 P2P Mode (LAN)
+
+Direct peer-to-peer WebRTC connection within local networks
+
+Ultra-low latency streaming and control
+
+🔵 Relay Mode (via Ayame Signaling)
+
+Secure relay communication over the internet
+
+Automatic STUN / NAT traversal for seamless cross-network connectivity
+
+Ideal for remote desktop access and AI-driven cloud workflow execution
 
 ![界面预览](./images/ea512f48-4b82-44c3-93db-a8572ddde107.png)
 

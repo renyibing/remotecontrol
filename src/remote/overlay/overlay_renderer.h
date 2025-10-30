@@ -51,7 +51,10 @@ class OverlayRenderer {
     // 1. There is a valid remote cursor image (has_image=true) - show custom cursor
     // 2. Sender explicitly set cursor invisible (cursor_.visible=false) - hide cursor in FPS games
     // Show OS cursor only when over toolbar/keyboard (local UI elements)
-    if (over_toolbar || over_keyboard) {
+    if (!cursor_received_) {
+      // 尚未接收到来自发送端的鼠标图像时，保持操作系统默认箭头
+      SDL_ShowCursor();
+    } else if (over_toolbar || over_keyboard) {
       SDL_ShowCursor();
     } else if (has_image) {
       SDL_HideCursor();
@@ -101,6 +104,7 @@ class OverlayRenderer {
   // State update
   void SetCursorImage(const remote::proto::CursorImageMsg& img) {
     bool was_visible = cursor_.visible;
+    cursor_received_ = true;
     cursor_ = img;
     
     // Debug: log received cursor image
@@ -219,6 +223,7 @@ class OverlayRenderer {
  private:
   // Send
   remote::proto::CursorImageMsg cursor_{};
+  bool cursor_received_{false};
   ReliableSender reliable_{};
   RtSender rt_{};
   UiCommand ui_cmd_{};

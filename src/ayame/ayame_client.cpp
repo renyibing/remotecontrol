@@ -89,19 +89,19 @@ webrtc::PeerConnectionInterface::IceServers CreateIceServersFromConfig(
   // Append default Coturn/STUN servers (temporary until WS config is implemented)
   auto append_default_servers = [&]() {
     webrtc::PeerConnectionInterface::IceServer stun_server;
-    stun_server.urls.push_back("stun:xxx.xxx.xxx.xxx:xxxx");
+    stun_server.urls.push_back("stun:36.99.188.173:3479");
     ice_servers.push_back(stun_server);
 
     webrtc::PeerConnectionInterface::IceServer turn_server_udp;
-    turn_server_udp.urls.push_back("turn:xxx.xxx.xxx.xxx:xxxx?transport=udp");
-    turn_server_udp.username = "x";
-    turn_server_udp.password = "x";
+    turn_server_udp.urls.push_back("turn:36.99.188.173:3479?transport=udp");
+    turn_server_udp.username = "yrxt";
+    turn_server_udp.password = "yrxt@unionstech.cn";
     ice_servers.push_back(turn_server_udp);
 
     webrtc::PeerConnectionInterface::IceServer turn_server_tcp;
-    turn_server_tcp.urls.push_back("turn:xxx.xxx.xxx.xxx:xxxx?transport=tcp");
-    turn_server_tcp.username = "x";
-    turn_server_tcp.password = "x";
+    turn_server_tcp.urls.push_back("turn:36.99.188.173:3479?transport=tcp");
+    turn_server_tcp.username = "yrxt";
+    turn_server_tcp.password = "yrxt@unionstech.cn";
     ice_servers.push_back(turn_server_tcp);
   };
   append_default_servers();

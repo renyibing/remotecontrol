@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <iostream>
 #include <vector>
+#include <cmath>
 #include <SDL3/SDL_keycode.h>
 
 #include "remote/input_receiver/input_injector.h"
@@ -233,14 +234,52 @@ use_sendinput:
   // Mouse relative position
   void InjectMouseRel(float dx, float dy, const remote::proto::Buttons& btns) override {
     if (use_hiddriver_ && hiddriver_) {
+      const auto to_rel_byte = [](int value) {
+        return static_cast<BYTE>(static_cast<int8_t>(value));
+      };
+
+      const bool buttons_changed = (btns.bits != last_btns_);
+
+      rel_dx_accum_ += dx;
+      rel_dy_accum_ += dy;
+
+      int queued_dx = static_cast<int>(std::lround(rel_dx_accum_));
+      int queued_dy = static_cast<int>(std::lround(rel_dy_accum_));
+
       BYTE button_flags = ConvertMouseButtons(btns.bits);
-      BYTE rel_x = static_cast<BYTE>(std::clamp(dx, static_cast<float>(RELATIVE_MOUSE_MIN_COORDINATE), static_cast<float>(RELATIVE_MOUSE_MAX_COORDINATE)));
-      BYTE rel_y = static_cast<BYTE>(std::clamp(dy, static_cast<float>(RELATIVE_MOUSE_MIN_COORDINATE), static_cast<float>(RELATIVE_MOUSE_MAX_COORDINATE)));
-      
-      if (vmulti_update_relative_mouse(hiddriver_, button_flags, rel_x, rel_y, 0)) {
+      bool sent_any = false;
+      bool send_failed = false;
+
+      while (!send_failed && (queued_dx != 0 || queued_dy != 0 || (buttons_changed && !sent_any))) {
+        int step_x = std::clamp(queued_dx, RELATIVE_MOUSE_MIN_COORDINATE, RELATIVE_MOUSE_MAX_COORDINATE);
+        int step_y = std::clamp(queued_dy, RELATIVE_MOUSE_MIN_COORDINATE, RELATIVE_MOUSE_MAX_COORDINATE);
+
+        if (!vmulti_update_relative_mouse(hiddriver_, button_flags, to_rel_byte(step_x), to_rel_byte(step_y), 0)) {
+          send_failed = true;
+          break;
+        }
+
+        sent_any = true;
         last_btns_ = btns.bits;
+
+        queued_dx -= step_x;
+        queued_dy -= step_y;
+        rel_dx_accum_ -= static_cast<float>(step_x);
+        rel_dy_accum_ -= static_cast<float>(step_y);
+
+        // Prevent infinite loop when only buttons change (step_x/step_y may be 0)
+        if (step_x == 0 && step_y == 0) {
+          break;
+        }
+      }
+
+      if (!send_failed && sent_any) {
         return;
       }
+
+      // On failure, fall back to SendInput and reset the accumulators
+      rel_dx_accum_ = 0.0f;
+      rel_dy_accum_ = 0.0f;
     }
     
     // Fallback to SendInput
@@ -592,6 +631,8 @@ use_sendinput:
   bool use_hiddriver_{false};
   std::vector<BYTE> pressed_keys_;
   BYTE hid_modifiers_{0}; // New member for HID modifier bits
+  float rel_dx_accum_{0.0f};
+  float rel_dy_accum_{0.0f};
 };
 
 }  // namespace windows

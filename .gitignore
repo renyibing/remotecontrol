@@ -61,3 +61,7 @@ doc/CURSOR_MONITOR.md
 third_party/vmulti-master/hiddriver.inf
 third_party/vmulti-master/install_hiddriver.ps1
 third_party/vmulti-master/test/testvmulti.vcproj
+src/ayame/ayame_client.cpp
+src/p2p/p2p_session.cpp
+src/ayame/ayame_client.cpp
+src/p2p/p2p_session.cpp

@@ -70,18 +70,18 @@ void P2PSession::OnRead(boost::system::error_code ec,
       config.no_google_stun = config_.no_google_stun;
       // Default Coturn/STUN servers (until configurable via WebSocket)
       P2PWebsocketSessionConfig::IceServerConfig stun_server;
-      stun_server.urls = {"stun:xxx.xxx.xxx.xxx:xxxx"};
+      stun_server.urls = {"stun:36.99.188.173:3479"};
       config.ice_servers.push_back(stun_server);
 
       P2PWebsocketSessionConfig::IceServerConfig turn_server_udp;
-      turn_server_udp.urls = {"turn:xxx.xxx.xxx.xxx:xxxx?transport=udp"};
-      turn_server_udp.username = "x";
+      turn_server_udp.urls = {"turn:36.99.188.173:3479?transport=udp"};
+      turn_server_udp.username = "yrxt";
       turn_server_udp.credential = "x";
       config.ice_servers.push_back(turn_server_udp);
 
       P2PWebsocketSessionConfig::IceServerConfig turn_server_tcp;
-      turn_server_tcp.urls = {"turn:xxx.xxx.xxx.xxx:xxxx?transport=tcp"};
-      turn_server_tcp.username = "x";
+      turn_server_tcp.urls = {"turn:36.99.188.173:3479?transport=tcp"};
+      turn_server_tcp.username = "yrxt";
       turn_server_tcp.credential = "x";
       config.ice_servers.push_back(turn_server_tcp);
 
