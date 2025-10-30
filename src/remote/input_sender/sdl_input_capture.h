@@ -43,16 +43,16 @@ class SdlInputCapture {
     // Enable SDL relative mouse mode for FPS games
     // This keeps the cursor locked and always sends relative deltas
     if (!window_) {
-      std::cout << "[SdlInputCapture] Warning: Window not set, cannot enable relative mouse mode" << std::endl;
+      // std::cout << "[SdlInputCapture] Warning: Window not set, cannot enable relative mouse mode" << std::endl;
       return;
     }
     
     if (mode == MouseMode::Relative) {
       SDL_SetWindowRelativeMouseMode(window_, true);
-      std::cout << "[SdlInputCapture] Enabled SDL relative mouse mode (FPS mode)" << std::endl;
+      // std::cout << "[SdlInputCapture] Enabled SDL relative mouse mode (FPS mode)" << std::endl;
     } else {
       SDL_SetWindowRelativeMouseMode(window_, false);
-      std::cout << "[SdlInputCapture] Disabled SDL relative mouse mode (normal mode)" << std::endl;
+      // std::cout << "[SdlInputCapture] Disabled SDL relative mouse mode (normal mode)" << std::endl;
     }
   }
 
@@ -137,10 +137,10 @@ class SdlInputCapture {
 
         if (ev.key.key == SDLK_UP || ev.key.key == SDLK_DOWN ||
             ev.key.key == SDLK_LEFT || ev.key.key == SDLK_RIGHT) {
-          std::cout << "[input] SDL capture key=" << k.key
-                    << " code=" << k.code
-                    << " down=" << (k.down ? "true" : "false")
-                    << " mods=" << k.mods << std::endl;
+          // std::cout << "[input] SDL capture key=" << k.key
+                    // << " code=" << k.code
+                    // << " down=" << (k.down ? "true" : "false")
+                    // << " mods=" << k.mods << std::endl;
         }
 
         auto pb = proto::PbSerializeKeyboard(k);

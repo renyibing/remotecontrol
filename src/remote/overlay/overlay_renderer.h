@@ -3,10 +3,11 @@
 #ifndef REMOTE_OVERLAY_OVERLAY_RENDERER_H_
 #define REMOTE_OVERLAY_OVERLAY_RENDERER_H_
 
-#include <SDL3/SDL.h>
 #include <algorithm>
 #include <cstdint>
+#include <cstring>
 #include <functional>
+#include <iostream>
 #include <string>
 #include <vector>
 
@@ -28,6 +29,9 @@ class OverlayRenderer {
   using RtSender = std::function<bool(const std::vector<uint8_t>&)>;
   using UiCommand = std::function<void(const std::string& cmd, bool value)>;
   using MouseModeCallback = std::function<void(bool use_relative)>;
+
+  OverlayRenderer() = default;
+  ~OverlayRenderer() { ReleaseCursorTexture(); }
 
   // Render (call after video frame)
   void Render(SDL_Renderer* r) {
@@ -66,27 +70,15 @@ class OverlayRenderer {
       SDL_ShowCursor();
     }
     if (has_image && !(over_toolbar || over_keyboard)) {
-      // Windows side CursorMonitor is BGRA due to DIB, treat as BGRA32
-      // If fmt is transported via message in the future, switch here
-      SDL_Surface* surface = SDL_CreateSurfaceFrom(
-          cursor_.w, cursor_.h, SDL_PIXELFORMAT_BGRA32,
-          static_cast<void*>(const_cast<uint8_t*>(cursor_.rgba.data())),
-          cursor_.w * 4);
-      if (surface) {
-        SDL_Texture* tex = SDL_CreateTextureFromSurface(r, surface);
-        if (tex) {
-          // Enable blend to correctly synthesize transparent cursor
-          SDL_SetTextureBlendMode(tex, SDL_BLENDMODE_BLEND);
-          SDL_FRect src{0, 0, static_cast<float>(cursor_.w),
-                        static_cast<float>(cursor_.h)};
-          SDL_FRect dst{mx - static_cast<float>(cursor_.hotspotX),
-                        my - static_cast<float>(cursor_.hotspotY),
-                        static_cast<float>(cursor_.w),
-                        static_cast<float>(cursor_.h)};
-          SDL_RenderTexture(r, tex, &src, &dst);
-          SDL_DestroyTexture(tex);
-        }
-        SDL_DestroySurface(surface);
+      EnsureCursorTexture(r);
+      if (cursor_texture_) {
+        SDL_FRect src{0, 0, static_cast<float>(cursor_tex_w_),
+                      static_cast<float>(cursor_tex_h_)};
+        SDL_FRect dst{mx - static_cast<float>(cursor_.hotspotX),
+                      my - static_cast<float>(cursor_.hotspotY),
+                      static_cast<float>(cursor_tex_w_),
+                      static_cast<float>(cursor_tex_h_)};
+        SDL_RenderTexture(r, cursor_texture_, &src, &dst);
       }
     }
 
@@ -106,12 +98,13 @@ class OverlayRenderer {
     bool was_visible = cursor_.visible;
     cursor_received_ = true;
     cursor_ = img;
+    cursor_dirty_ = true;
     
     // Debug: log received cursor image
-    std::cout << "[OverlayRenderer] Received cursor: visible=" << img.visible
-              << " size=" << img.w << "x" << img.h
-              << " hotspot=(" << img.hotspotX << "," << img.hotspotY << ")"
-              << " data_size=" << img.rgba.size() << std::endl;
+    // std::cout << "[OverlayRenderer] Received cursor: visible=" << img.visible
+              // << " size=" << img.w << "x" << img.h
+              // << " hotspot=(" << img.hotspotX << "," << img.hotspotY << ")"
+              // << " data_size=" << img.rgba.size() << std::endl;
     
     // Auto-switch mouse mode based on cursor visibility (FPS game support)
     // When sender's cursor becomes invisible (e.g., enters FPS game), switch to relative mode
@@ -224,6 +217,11 @@ class OverlayRenderer {
   // Send
   remote::proto::CursorImageMsg cursor_{};
   bool cursor_received_{false};
+  SDL_Texture* cursor_texture_{nullptr};
+  SDL_Renderer* cursor_renderer_{nullptr};
+  int cursor_tex_w_{0};
+  int cursor_tex_h_{0};
+  bool cursor_dirty_{false};
   ReliableSender reliable_{};
   RtSender rt_{};
   UiCommand ui_cmd_{};
@@ -691,6 +689,69 @@ class OverlayRenderer {
                      bg.y + h / 2);
     }
 #endif
+  }
+
+  void EnsureCursorTexture(SDL_Renderer* renderer) {
+    if (!cursor_dirty_ && cursor_texture_ && renderer == cursor_renderer_) {
+      return;
+    }
+    if (!cursor_.visible || cursor_.rgba.empty() || cursor_.w <= 0 || cursor_.h <= 0) {
+      ReleaseCursorTexture();
+      cursor_dirty_ = false;
+      return;
+    }
+
+    if (cursor_renderer_ != renderer) {
+      ReleaseCursorTexture();
+      cursor_renderer_ = renderer;
+    }
+
+    if (!cursor_texture_ || cursor_tex_w_ != cursor_.w || cursor_tex_h_ != cursor_.h) {
+      ReleaseCursorTexture();
+      cursor_texture_ = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_BGRA32,
+                                          SDL_TEXTUREACCESS_STREAMING, cursor_.w, cursor_.h);
+      if (!cursor_texture_) {
+        std::cout << "[OverlayRenderer] Failed to create cursor texture: "
+                  << SDL_GetError() << std::endl;
+        cursor_renderer_ = nullptr;
+        return;
+      }
+      SDL_SetTextureBlendMode(cursor_texture_, SDL_BLENDMODE_BLEND);
+      cursor_tex_w_ = cursor_.w;
+      cursor_tex_h_ = cursor_.h;
+    }
+
+    void* pixels = nullptr;
+    int pitch = 0;
+    if (SDL_LockTexture(cursor_texture_, nullptr, &pixels, &pitch) != 0) {
+      SDL_FlushRenderer(renderer);
+      if (SDL_LockTexture(cursor_texture_, nullptr, &pixels, &pitch) != 0) {
+        std::cout << "[OverlayRenderer] Failed to lock cursor texture: "
+                  << SDL_GetError() << " size=" << cursor_.w << "x" << cursor_.h
+                  << " rgba_bytes=" << cursor_.rgba.size() << std::endl;
+        ReleaseCursorTexture();
+        return;
+      }
+    }
+
+    const uint8_t* src = cursor_.rgba.data();
+    const int src_stride = cursor_.w * 4;
+    uint8_t* dst = static_cast<uint8_t*>(pixels);
+    for (int row = 0; row < cursor_.h; ++row) {
+      std::memcpy(dst + row * pitch, src + row * src_stride, src_stride);
+    }
+    SDL_UnlockTexture(cursor_texture_);
+
+    cursor_dirty_ = false;
+  }
+
+  void ReleaseCursorTexture() {
+    if (cursor_texture_) {
+      SDL_DestroyTexture(cursor_texture_);
+      cursor_texture_ = nullptr;
+    }
+    cursor_renderer_ = nullptr;
+    cursor_tex_w_ = cursor_tex_h_ = 0;
   }
 };
 

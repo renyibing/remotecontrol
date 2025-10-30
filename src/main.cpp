@@ -100,9 +100,9 @@ static void ListVideoDevices() {
   }
 
   // Do not intercept initially; return false to let SDL continue processing
-  std::cout << "=== Available video devices ===" << std::endl;
-  std::cout << std::endl;
-  std::cout << sora::FormatV4L2Devices(*devices);
+  // std::cout << "=== Available video devices ===" << std::endl;
+  // std::cout << std::endl;
+  // std::cout << sora::FormatV4L2Devices(*devices);
 }
 
 // Add input DataChannel manager framework (input-reliable / input-rt)

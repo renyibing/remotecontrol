@@ -18,7 +18,8 @@
 #define WIDE_ASPECT 1.78
 // Low latency: remove fixed 30 FPS frame interval sleep, and let the decoder reach the driver to present
 // If you need to limit the speed, you can change it to a smaller sleep (e.g. 1ms)
-#define FRAME_INTERVAL 0
+constexpr Uint32 kActiveFrameIntervalMs = 8;   // ~120 FPS upper bound when video available
+constexpr Uint32 kIdleFrameIntervalMs = 16;    // ~60 FPS when waiting for frames/overlays
 
 SDLRenderer::SDLRenderer(int width, int height, bool fullscreen)
     : running_(true),
@@ -32,8 +33,11 @@ SDLRenderer::SDLRenderer(int width, int height, bool fullscreen)
       audio_device_(0),
       audio_stream_(nullptr),
       keyboard_hook_(std::make_unique<sdl_hook::KeyboardHookManager>()) {
-  // Low latency: disable rendering vertical synchronization, to avoid waiting for the display to refresh
-  SDL_SetHint(SDL_HINT_RENDER_VSYNC, "0");
+  // Unless the caller explicitly overrides SDL_HINT_RENDER_VSYNC, enable VSYNC to prevent tearing
+  const char* vsync_hint = SDL_GetHint(SDL_HINT_RENDER_VSYNC);
+  if (vsync_hint == nullptr) {
+    SDL_SetHint(SDL_HINT_RENDER_VSYNC, "1");
+  }
 
   // Initialize VIDEO first (critical for display)
   if (!SDL_Init(SDL_INIT_VIDEO)) {
@@ -290,8 +294,11 @@ int SDLRenderer::RenderThread() {
   uint32_t start_time, duration;
   while (running_) {
     start_time = SDL_GetTicks();
+    bool drew_frame = false;
+    bool has_sinks = false;
     {
       webrtc::MutexLock lock(&sinks_lock_);
+      has_sinks = !sinks_.empty();
       SDL_SetRenderDrawColor(renderer_, 0, 0, 0, 255);
       SDL_RenderClear(renderer_);
       bool has_valid_frame = false;
@@ -310,48 +317,106 @@ int SDLRenderer::RenderThread() {
           continue;
 
         has_valid_frame = true;
+        auto& cache = sink_textures_[sink];
+        if (!cache.texture || cache.width != width || cache.height != height) {
+          if (cache.texture) {
+            SDL_DestroyTexture(cache.texture);
+          }
+          cache.texture = SDL_CreateTexture(renderer_, SDL_PIXELFORMAT_ARGB8888,
+                                            SDL_TEXTUREACCESS_STREAMING, width, height);
+          if (!cache.texture) {
+            RTC_LOG(LS_ERROR) << __FUNCTION__
+                              << ": SDL_CreateTexture failed " << SDL_GetError();
+            cache.width = cache.height = 0;
+            continue;
+          }
+          SDL_SetTextureBlendMode(cache.texture, SDL_BLENDMODE_BLEND);
+          cache.width = width;
+          cache.height = height;
+        }
 
-        SDL_Surface* surface =
-            SDL_CreateSurfaceFrom(width, height, SDL_PIXELFORMAT_ARGB8888,
-                                  sink->GetImage(), width * 4);
-        SDL_Texture* texture = SDL_CreateTextureFromSurface(renderer_, surface);
-        SDL_DestroySurface(surface);
+        uint8_t* src_pixels = sink->GetImage();
+        if (!src_pixels) {
+          continue;
+        }
 
-        SDL_FRect image_rect = {0, 0, (float)width, (float)height};
-        SDL_FRect draw_rect = {
-            (float)sink->GetOffsetX(), (float)sink->GetOffsetY(),
-            (float)sink->GetWidth(), (float)sink->GetHeight()};
+        void* dst_pixels = nullptr;
+        int dst_pitch = 0;
+        if (SDL_LockTexture(cache.texture, nullptr, &dst_pixels, &dst_pitch) != 0) {
+          SDL_FlushRenderer(renderer_);
+          if (SDL_LockTexture(cache.texture, nullptr, &dst_pixels, &dst_pitch) != 0) {
+            RTC_LOG(LS_ERROR) << __FUNCTION__
+                              << ": SDL_LockTexture failed " << SDL_GetError();
+            continue;
+          }
+        }
+
+        const int src_stride = width * 4;
+        uint8_t* dst = static_cast<uint8_t*>(dst_pixels);
+        for (int row = 0; row < height; ++row) {
+          std::memcpy(dst + row * dst_pitch, src_pixels + row * src_stride, src_stride);
+        }
+        SDL_UnlockTexture(cache.texture);
+
+        SDL_FRect image_rect = {0, 0, static_cast<float>(width), static_cast<float>(height)};
+        SDL_FRect draw_rect = {static_cast<float>(sink->GetOffsetX()),
+                               static_cast<float>(sink->GetOffsetY()),
+                               static_cast<float>(sink->GetWidth()),
+                               static_cast<float>(sink->GetHeight())};
 
         // flip (self-image, etc.)
         //SDL_RenderTextureRotated(renderer_, texture, &image_rect, &draw_rect, 0, nullptr, SDL_FLIP_HORIZONTAL);
-        SDL_RenderTexture(renderer_, texture, &image_rect, &draw_rect);
-
-        SDL_DestroyTexture(texture);
+        SDL_RenderTexture(renderer_, cache.texture, &image_rect, &draw_rect);
       }
       if (!has_valid_frame) {
         DrawHomageText(renderer_);
+      } else {
+        drew_frame = true;
       }
+      drew_frame = drew_frame || has_valid_frame;
       // Overlay custom overlays before rendering (mouse image, virtual keyboard, controller, RDP toolbar, etc.)
       if (overlay_render_cb_) {
         overlay_render_cb_(renderer_);
+        drew_frame = true;
       }
       SDL_RenderPresent(renderer_);
+
+      for (auto it = sink_textures_.begin(); it != sink_textures_.end();) {
+        bool exists = std::any_of(
+            sinks_.begin(), sinks_.end(),
+            [&](const VideoTrackSinkVector::value_type& pair) {
+              return pair.second.get() == it->first;
+            });
+        if (!exists) {
+          if (it->second.texture) {
+            SDL_DestroyTexture(it->second.texture);
+          }
+          it = sink_textures_.erase(it);
+        } else {
+          ++it;
+        }
+      }
 
       if (dispatch_) {
         dispatch_(std::bind(&SDLRenderer::PollEvent, this));
       }
     }
-    // Low latency: avoid extra queue delay caused by fixed frame rate, only make a very short yield to avoid occupying the CPU
-    if (FRAME_INTERVAL > 0) {
-      duration = SDL_GetTicks() - start_time;
-      uint32_t rest =
-          (FRAME_INTERVAL > duration) ? (FRAME_INTERVAL - duration) : 0;
-      if (rest > 0)
-        SDL_Delay(rest);
-    } else {
-      SDL_Delay(1);
+    duration = SDL_GetTicks() - start_time;
+    const Uint32 target_interval = drew_frame
+                                       ? kActiveFrameIntervalMs
+                                       : (has_sinks ? kActiveFrameIntervalMs
+                                                    : kIdleFrameIntervalMs);
+    if (duration < target_interval) {
+      SDL_Delay(target_interval - duration);
     }
   }
+
+  for (auto& entry : sink_textures_) {
+    if (auto tex = entry.second.texture) {
+      SDL_DestroyTexture(tex);
+    }
+  }
+  sink_textures_.clear();
 
   SDL_DestroyRenderer(renderer_);
   renderer_ = nullptr;
@@ -550,12 +615,21 @@ void SDLRenderer::AddTrack(webrtc::VideoTrackInterface* track) {
 
 void SDLRenderer::RemoveTrack(webrtc::VideoTrackInterface* track) {
   webrtc::MutexLock lock(&sinks_lock_);
-  sinks_.erase(
-      std::remove_if(sinks_.begin(), sinks_.end(),
-                     [track](const VideoTrackSinkVector::value_type& sink) {
-                       return sink.first == track;
-                     }),
-      sinks_.end());
+  for (auto it = sinks_.begin(); it != sinks_.end();) {
+    if (it->first == track) {
+      Sink* sink_ptr = it->second.get();
+      auto tex_it = sink_textures_.find(sink_ptr);
+      if (tex_it != sink_textures_.end()) {
+        if (tex_it->second.texture) {
+          SDL_DestroyTexture(tex_it->second.texture);
+        }
+        sink_textures_.erase(tex_it);
+      }
+      it = sinks_.erase(it);
+    } else {
+      ++it;
+    }
+  }
   SetOutlines();
 }
 

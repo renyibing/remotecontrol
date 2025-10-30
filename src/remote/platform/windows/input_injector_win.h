@@ -120,17 +120,17 @@ class WindowsInputInjector : public remote::input_receiver::IInputInjector {
       if (!use_hiddriver_) {
         vmulti_free(hiddriver_);
         hiddriver_ = nullptr;
-        std::cout << "[input_injector] hiddriver not found or access denied" << std::endl;
-        std::cout << "[input_injector] Possible reasons:" << std::endl;
-        std::cout << "[input_injector]   1. hiddriver not installed (xrcloud\\hiddriver)" << std::endl;
-        std::cout << "[input_injector]   2. Insufficient permissions (run as Administrator)" << std::endl;
-        std::cout << "[input_injector]   3. Device not accessible" << std::endl;
-        std::cout << "[input_injector] Falling back to SendInput method" << std::endl;
+        // std::cout << "[input_injector] hiddriver not found or access denied" << std::endl;
+        // std::cout << "[input_injector] Possible reasons:" << std::endl;
+        // std::cout << "[input_injector]   1. hiddriver not installed (xrcloud\\hiddriver)" << std::endl;
+        // std::cout << "[input_injector]   2. Insufficient permissions (run as Administrator)" << std::endl;
+        // std::cout << "[input_injector]   3. Device not accessible" << std::endl;
+        // std::cout << "[input_injector] Falling back to SendInput method" << std::endl;
       } else {
-        std::cout << "[input_injector] hiddriver connected successfully" << std::endl;
+        // std::cout << "[input_injector] hiddriver connected successfully" << std::endl;
       }
     } else {
-      std::cout << "[input_injector] Failed to allocate hiddriver client, using SendInput" << std::endl;
+      // std::cout << "[input_injector] Failed to allocate hiddriver client, using SendInput" << std::endl;
     }
   }
   
@@ -205,10 +205,10 @@ use_sendinput:
     ::SendInput(1, &in, sizeof(INPUT));
 
     if (vk == VK_UP || vk == VK_DOWN || vk == VK_LEFT || vk == VK_RIGHT) {
-      std::cout << "[input] InjectKeyboard vk=" << vk
-                << " down=" << (ev.down ? "true" : "false")
-                << " key=" << ev.key << " code=" << ev.code
-                << " mods=" << ev.mods << std::endl;
+      // std::cout << "[input] InjectKeyboard vk=" << vk
+                // << " down=" << (ev.down ? "true" : "false")
+                // << " key=" << ev.key << " code=" << ev.code
+                // << " mods=" << ev.mods << std::endl;
     }
   }
 

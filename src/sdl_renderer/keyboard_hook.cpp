@@ -46,7 +46,7 @@ KeyboardHookManager::~KeyboardHookManager() {
 
 bool KeyboardHookManager::Initialize() {
   if (initialized_.exchange(true)) {
-    std::cout << "KeyboardHookManager: Already initialized" << std::endl;
+    // std::cout << "KeyboardHookManager: Already initialized" << std::endl;
     return true;
   }
 
@@ -99,7 +99,7 @@ bool KeyboardHookManager::Initialize() {
   // Success!
   SDL_UnlockMutex(hook_control_mutex_);
   
-  std::cout << "KeyboardHookManager: Successfully initialized" << std::endl;
+  // std::cout << "KeyboardHookManager: Successfully initialized" << std::endl;
   return true;
 }
 
@@ -108,7 +108,7 @@ void KeyboardHookManager::Shutdown() {
     return;
   }
 
-  std::cout << "KeyboardHookManager: Shutting down..." << std::endl;
+  // std::cout << "KeyboardHookManager: Shutting down..." << std::endl;
 
   // Stop the hook
   int status = hook_stop();
@@ -123,7 +123,7 @@ void KeyboardHookManager::Shutdown() {
     hook_thread_ = nullptr;
   }
 
-  std::cout << "KeyboardHookManager: Shutdown complete" << std::endl;
+  // std::cout << "KeyboardHookManager: Shutdown complete" << std::endl;
 }
 
 void KeyboardHookManager::UpdateMouseTracking() {
@@ -157,9 +157,9 @@ void KeyboardHookManager::UpdateMouseTracking() {
 
   // If state changed, enable or disable the hook
   if (should_intercept != currently_intercepting) {
-    std::cout << "KeyboardHookManager: should_intercept=" << (should_intercept ? "true" : "false")
-              << " mouse_inside=" << (mouse_inside_window_ ? "true" : "false")
-              << " focus=" << (window_has_focus_ ? "true" : "false") << std::endl;
+    // std::cout << "KeyboardHookManager: should_intercept=" << (should_intercept ? "true" : "false")
+              // << " mouse_inside=" << (mouse_inside_window_ ? "true" : "false")
+              // << " focus=" << (window_has_focus_ ? "true" : "false") << std::endl;
     if (should_intercept) {
       EnableInterception();
     } else {
@@ -173,7 +173,7 @@ void KeyboardHookManager::EnableInterception() {
     return;  // Already enabled
   }
   
-  std::cout << "KeyboardHookManager: Interception ENABLED (re-hooking)" << std::endl;
+  // std::cout << "KeyboardHookManager: Interception ENABLED (re-hooking)" << std::endl;
   
   // Note: libuiohook doesn't support dynamic enable/disable after hook_run() starts
   // The hook is always active, we just control whether to forward events
@@ -185,7 +185,7 @@ void KeyboardHookManager::DisableInterception() {
     return;  // Already disabled
   }
   
-  std::cout << "KeyboardHookManager: Interception DISABLED (releasing hook)" << std::endl;
+  // std::cout << "KeyboardHookManager: Interception DISABLED (releasing hook)" << std::endl;
   
   // Note: libuiohook doesn't support dynamic enable/disable after hook_run() starts
   // The hook is always active, we just control whether to forward events
@@ -199,12 +199,12 @@ int KeyboardHookManager::HookThreadFunc(void* data) {
     return UIOHOOK_FAILURE;
   }
 
-  std::cout << "HookThreadFunc: Starting hook_run()..." << std::endl;
+  // std::cout << "HookThreadFunc: Starting hook_run()..." << std::endl;
 
   // Run the hook (blocks until hook_stop() is called)
   int status = hook_run();
 
-  std::cout << "HookThreadFunc: hook_run() returned with status " << status << std::endl;
+  // std::cout << "HookThreadFunc: hook_run() returned with status " << status << std::endl;
 
   return status;
 }
@@ -234,10 +234,10 @@ void KeyboardHookManager::HookEventProc(uiohook_event* const event) {
     case EVENT_KEY_PRESSED:
     case EVENT_KEY_RELEASED: {
       // Debug: Log ALL keyboard events at hook level
-      std::cout << "[Hook] Keycode=" << event->data.keyboard.keycode 
-                << " (" << (event->type == EVENT_KEY_PRESSED ? "DOWN" : "UP") << ")"
-                << " intercepting=" << instance_->is_intercepting_.load()
-                << " has_window=" << (instance_->window_ != nullptr) << std::endl;
+      // std::cout << "[Hook] Keycode=" << event->data.keyboard.keycode 
+                // << " (" << (event->type == EVENT_KEY_PRESSED ? "DOWN" : "UP") << ")"
+                // << " intercepting=" << instance_->is_intercepting_.load()
+                // << " has_window=" << (instance_->window_ != nullptr) << std::endl;
       
       // Check if we should intercept
       if (instance_->is_intercepting_.load() && instance_->window_) {
@@ -260,9 +260,9 @@ void KeyboardHookManager::HookEventProc(uiohook_event* const event) {
         sdl_event.key.key = ConvertKeycodeToSDL(event->data.keyboard.keycode);
         sdl_event.key.scancode = SDL_GetScancodeFromKey(sdl_event.key.key, nullptr);
         
-        std::cout << "[Hook] Converted to SDL keycode=" << sdl_event.key.key 
-                  << " name=" << (SDL_GetKeyName(sdl_event.key.key) ? SDL_GetKeyName(sdl_event.key.key) : "NULL") 
-                  << std::endl;
+        // std::cout << "[Hook] Converted to SDL keycode=" << sdl_event.key.key 
+                  // << " name=" << (SDL_GetKeyName(sdl_event.key.key) ? SDL_GetKeyName(sdl_event.key.key) : "NULL") 
+                  // << std::endl;
         
         // Set modifier state
         sdl_event.key.mod = SDL_KMOD_NONE;
@@ -273,7 +273,7 @@ void KeyboardHookManager::HookEventProc(uiohook_event* const event) {
         
         // Push event to SDL queue
         int result = SDL_PushEvent(&sdl_event);
-        std::cout << "[Hook] SDL_PushEvent result=" << result << std::endl;
+        // std::cout << "[Hook] SDL_PushEvent result=" << result << std::endl;
       }
       break;
     }

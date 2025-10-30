@@ -57,21 +57,21 @@ class CursorMonitorWin {
     bool first_capture = true;  // Force send on first capture
     
     for (; running_.load();) {
+      bool force = force_refresh_.exchange(false);
       remote::proto::CursorImageMsg msg;
       // Capture always succeeds now, returning either visible or invisible cursor
-      Capture(msg);
+      Capture(msg, force);
       
       // Notify visibility changes for mouse mode switching (FPS game support)
       if (msg.visible != last_visible) {
         last_visible = msg.visible;
-        std::cout << "[CursorMonitor] Cursor visibility changed: " 
-                  << (msg.visible ? "visible" : "invisible") << std::endl;
+        // std::cout << "[CursorMonitor] Cursor visibility changed: " 
+                  // << (msg.visible ? "visible" : "invisible") << std::endl;
         if (visibility_cb_) {
           visibility_cb_(msg.visible);
         }
       }
       
-      bool force = force_refresh_.exchange(false);
       std::string sig = Signature(msg);
       // Send if cursor changed OR force refresh requested OR first capture
       if (first_capture || sig != last_sig || force) {
@@ -82,7 +82,7 @@ class CursorMonitorWin {
           }
           last_sig = sig;
         } else {
-          std::cout << "[CursorMonitor] Send cursor message failed, will retry" << std::endl;
+          // std::cout << "[CursorMonitor] Send cursor message failed, will retry" << std::endl;
           // If send failed, restore force flag so we retry on next iteration
           if (force) {
             force_refresh_.store(true);
@@ -96,22 +96,22 @@ class CursorMonitorWin {
 
   bool Send(const remote::proto::CursorImageMsg& msg) {
     if (!sender_) {
-      std::cout << "[CursorMonitor] No sender configured!" << std::endl;
+      // std::cout << "[CursorMonitor] No sender configured!" << std::endl;
       return false;
     }
     
     // Debug: log cursor state
-    std::cout << "[CursorMonitor] Sending cursor: visible=" << msg.visible
-              << " size=" << msg.w << "x" << msg.h
-              << " hotspot=(" << msg.hotspotX << "," << msg.hotspotY << ")"
-              << " data_size=" << msg.rgba.size() << std::endl;
+    // std::cout << "[CursorMonitor] Sending cursor: visible=" << msg.visible
+              // << " size=" << msg.w << "x" << msg.h
+              // << " hotspot=(" << msg.hotspotX << "," << msg.hotspotY << ")"
+              // << " data_size=" << msg.rgba.size() << std::endl;
     
 #ifdef REMOTE_USE_PROTOBUF
     auto pb = remote::proto::PbSerializeCursorImage(msg);
     if (!pb.empty()) {
       bool result = sender_(pb);
-      std::cout << "[CursorMonitor] Sent via Protobuf, result=" << result
-                << " size=" << pb.size() << " bytes" << std::endl;
+      // std::cout << "[CursorMonitor] Sent via Protobuf, result=" << result
+                // << " size=" << pb.size() << " bytes" << std::endl;
       return result;
     }
 #endif
@@ -128,14 +128,14 @@ class CursorMonitorWin {
         ",\"data\":\"" + b64 + "\"}";
     bytes.assign(s.begin(), s.end());
     bool result = sender_(bytes);
-    std::cout << "[CursorMonitor] Sent via JSON, result=" << result
-              << " size=" << bytes.size() << " bytes" << std::endl;
+    // std::cout << "[CursorMonitor] Sent via JSON, result=" << result
+              // << " size=" << bytes.size() << " bytes" << std::endl;
     return result;
   }
 
   // Capture current system cursor as RGBA (BGRA32) + hotspot
   // Always returns true with a valid message (visible or invisible cursor)
-  bool Capture(remote::proto::CursorImageMsg& out) {
+  bool Capture(remote::proto::CursorImageMsg& out, bool force_capture) {
     // Initialize with "invisible" state as default
     out.visible = false;
     out.w = 1;
@@ -147,18 +147,30 @@ class CursorMonitorWin {
     CURSORINFO ci{};
     ci.cbSize = sizeof(ci);
     if (!GetCursorInfo(&ci)) {
-      std::cout << "[CursorMonitor] GetCursorInfo failed, error=" << GetLastError() << std::endl;
+      // std::cout << "[CursorMonitor] GetCursorInfo failed, error=" << GetLastError() << std::endl;
       return true;  // Return invisible cursor if GetCursorInfo fails
     }
-    
+
     if (ci.flags != CURSOR_SHOWING) {
-      std::cout << "[CursorMonitor] Cursor not showing, flags=" << ci.flags << std::endl;
+      // std::cout << "[CursorMonitor] Cursor not showing, flags=" << ci.flags << std::endl;
+      last_cursor_handle_ = nullptr;
+      last_capture_valid_ = false;
       return true;  // Return invisible cursor if not showing (e.g., FPS games)
+    }
+
+    DWORD now = GetTickCount();
+    constexpr DWORD kCursorReuseTimeoutMs = 250;
+    if (!force_capture && last_capture_valid_ && last_cursor_handle_ == ci.hCursor &&
+        (now - last_capture_tick_) <= kCursorReuseTimeoutMs) {
+      // Reuse previously captured cursor image to avoid expensive GDI operations
+      out = last_msg_;
+      out.visible = true;
+      return true;
     }
 
     HICON hIcon = (HICON)CopyIcon(ci.hCursor);
     if (!hIcon) {
-      std::cout << "[CursorMonitor] CopyIcon failed, error=" << GetLastError() << std::endl;
+      // std::cout << "[CursorMonitor] CopyIcon failed, error=" << GetLastError() << std::endl;
       return true;  // Return invisible cursor if CopyIcon fails
     }
 
@@ -195,7 +207,7 @@ class CursorMonitorWin {
     out.h = height;
     out.rgba.resize(static_cast<size_t>(out.w) * out.h * 4);
     
-    std::cout << "[CursorMonitor] Captured visible cursor: " << width << "x" << height << std::endl;
+    // std::cout << "[CursorMonitor] Captured visible cursor: " << width << "x" << height << std::endl;
 
     // Use DrawIconEx to render to 32-bit DIB (BGRA), handle both color and monochrome double mask cursors uniformly
     BITMAPINFO bmi{};
@@ -408,6 +420,12 @@ class CursorMonitorWin {
     DeleteDC(hdc);
 
     CleanupIcon(ii, hIcon);
+
+    // Cache last captured cursor to avoid redundant work when unchanged
+    last_cursor_handle_ = ci.hCursor;
+    last_msg_ = out;
+    last_capture_valid_ = true;
+    last_capture_tick_ = now;
     return true;
   }
 
@@ -443,6 +461,10 @@ class CursorMonitorWin {
   std::thread th_;
   Sender sender_;
   VisibilityCallback visibility_cb_;
+  HCURSOR last_cursor_handle_{nullptr};
+  remote::proto::CursorImageMsg last_msg_{};
+  bool last_capture_valid_{false};
+  DWORD last_capture_tick_{0};
 };
 
 }  // namespace windows

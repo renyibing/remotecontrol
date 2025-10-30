@@ -60,7 +60,7 @@ void ShowEncoderCapability() {
     std::cerr << "CUDA Device not found" << std::endl;
     exit(1);
   }
-  std::cout << "Encoder Capability" << std::endl;
+  // std::cout << "Encoder Capability" << std::endl;
   for (int iGpu = 0; iGpu < nGpu; iGpu++) {
     CUdevice cuDevice = 0;
     ck(dyn::cuDeviceGet(&cuDevice, iGpu));
@@ -70,8 +70,8 @@ void ShowEncoderCapability() {
     ck(dyn::cuCtxCreate(&cuContext, 0, cuDevice));
     NvEncoderCuda enc(cuContext, 1280, 720, NV_ENC_BUFFER_FORMAT_NV12);
 
-    std::cout << "GPU " << iGpu << " - " << szDeviceName << std::endl
-              << std::endl;
+    // std::cout << "GPU " << iGpu << " - " << szDeviceName << std::endl
+              // << std::endl;
     std::cout
         << "\tH264:\t\t" << "  "
         << (enc.GetCapabilityValue(NV_ENC_CODEC_H264_GUID,
@@ -142,7 +142,7 @@ void ShowEncoderCapability() {
                                    NV_ENC_CAPS_HEIGHT_MAX))
         << std::endl;
 
-    std::cout << std::endl;
+    // std::cout << std::endl;
 
     enc.DestroyEncoder();
     ck(dyn::cuCtxDestroy(cuContext));

@@ -313,7 +313,7 @@ mfxStatus VplVideoEncoderImpl::Queries(MFXVideoENCODE* encoder,
       // Show which parameters have been changed by Query.
       // #define F(NAME)                                           \
       //   if (param.NAME != query_param.NAME)                     \
-      //   std::cout << "param " << #NAME << " old=" << param.NAME \
+      //   // std::cout << "param " << #NAME << " old=" << param.NAME \
       //             << " new=" << query_param.NAME << std::endl
       //       F(mfx.LowPower);
       //       F(mfx.BRCParamMultiplier);

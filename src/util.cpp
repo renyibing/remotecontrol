@@ -401,23 +401,23 @@ void Util::ParseArgs(int argc,
   }
 
   if (version) {
-    std::cout << MomoVersion::GetClientName() << std::endl;
-    std::cout << std::endl;
-    std::cout << "WebRTC: " << MomoVersion::GetLibwebrtcName() << std::endl;
-    std::cout << "Environment: " << MomoVersion::GetEnvironmentName()
-              << std::endl;
-    std::cout << std::endl;
+    // std::cout << MomoVersion::GetClientName() << std::endl;
+    // std::cout << std::endl;
+    // std::cout << "WebRTC: " << MomoVersion::GetLibwebrtcName() << std::endl;
+    // std::cout << "Environment: " << MomoVersion::GetEnvironmentName()
+              // << std::endl;
+    // std::cout << std::endl;
 #if defined(USE_JETSON_ENCODER)
-    std::cout << "- USE_JETSON_ENCODER";
+    // std::cout << "- USE_JETSON_ENCODER";
 #endif
 #if defined(USE_NVCODEC_ENCODER)
-    std::cout << "- USE_NVCODEC_ENCODER";
+    // std::cout << "- USE_NVCODEC_ENCODER";
 #endif
 #if defined(USE_V4L2_ENCODER)
-    std::cout << "- USE_V4L2_ENCODER";
+    // std::cout << "- USE_V4L2_ENCODER";
 #endif
 #if defined(USE_VPL_ENCODER)
-    std::cout << "- USE_VPL_ENCODER";
+    // std::cout << "- USE_VPL_ENCODER";
 #endif
     exit(0);
   }
@@ -434,7 +434,7 @@ void Util::ParseArgs(int argc,
   }
 
   if (!p2p_app->parsed() && !sora_app->parsed() && !ayame_app->parsed()) {
-    std::cout << app.help() << std::endl;
+    // std::cout << app.help() << std::endl;
     exit(1);
   }
 
@@ -467,48 +467,48 @@ void Util::ShowVideoCodecs(VideoCodecInfo info) {
   // Output like this
   auto list_codecs = [](std::vector<VideoCodecInfo::Type> types) {
     if (types.empty()) {
-      std::cout << "    *UNAVAILABLE*" << std::endl;
+      // std::cout << "    *UNAVAILABLE*" << std::endl;
       return;
     }
 
     for (int i = 0; i < types.size(); i++) {
       auto type = types[i];
       auto p = VideoCodecInfo::TypeToString(type);
-      std::cout << "    - " << p.first << " [" << p.second << "]";
+      // std::cout << "    - " << p.first << " [" << p.second << "]";
       if (i == 0) {
-        std::cout << " (default)";
+        // std::cout << " (default)";
       }
-      std::cout << std::endl;
+      // std::cout << std::endl;
     }
   };
-  std::cout << "VP8:" << std::endl;
-  std::cout << "  Encoder:" << std::endl;
+  // std::cout << "VP8:" << std::endl;
+  // std::cout << "  Encoder:" << std::endl;
   list_codecs(info.vp8_encoders);
-  std::cout << "  Decoder:" << std::endl;
+  // std::cout << "  Decoder:" << std::endl;
   list_codecs(info.vp8_decoders);
-  std::cout << "" << std::endl;
-  std::cout << "VP9:" << std::endl;
-  std::cout << "  Encoder:" << std::endl;
+  // std::cout << "" << std::endl;
+  // std::cout << "VP9:" << std::endl;
+  // std::cout << "  Encoder:" << std::endl;
   list_codecs(info.vp9_encoders);
-  std::cout << "  Decoder:" << std::endl;
+  // std::cout << "  Decoder:" << std::endl;
   list_codecs(info.vp9_decoders);
-  std::cout << "" << std::endl;
-  std::cout << "AV1:" << std::endl;
-  std::cout << "  Encoder:" << std::endl;
+  // std::cout << "" << std::endl;
+  // std::cout << "AV1:" << std::endl;
+  // std::cout << "  Encoder:" << std::endl;
   list_codecs(info.av1_encoders);
-  std::cout << "  Decoder:" << std::endl;
+  // std::cout << "  Decoder:" << std::endl;
   list_codecs(info.av1_decoders);
-  std::cout << "" << std::endl;
-  std::cout << "H264:" << std::endl;
-  std::cout << "  Encoder:" << std::endl;
+  // std::cout << "" << std::endl;
+  // std::cout << "H264:" << std::endl;
+  // std::cout << "  Encoder:" << std::endl;
   list_codecs(info.h264_encoders);
-  std::cout << "  Decoder:" << std::endl;
+  // std::cout << "  Decoder:" << std::endl;
   list_codecs(info.h264_decoders);
-  std::cout << "" << std::endl;
-  std::cout << "H265:" << std::endl;
-  std::cout << "  Encoder:" << std::endl;
+  // std::cout << "" << std::endl;
+  // std::cout << "H265:" << std::endl;
+  // std::cout << "  Encoder:" << std::endl;
   list_codecs(info.h265_encoders);
-  std::cout << "  Decoder:" << std::endl;
+  // std::cout << "  Decoder:" << std::endl;
   list_codecs(info.h265_decoders);
 }
 

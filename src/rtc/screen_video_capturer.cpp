@@ -162,7 +162,7 @@ void ScreenVideoCapturer::OnCaptureResult(
           frame->size().width() * max_height_ / frame->size().height();
       capture_height_ = max_height_;
     }
-    //std::cout << "capture_width_:" << capture_width_ << " capture_height_:" << capture_height_ << std::endl << std::flush;
+    //// std::cout << "capture_width_:" << capture_width_ << " capture_height_:" << capture_height_ << std::endl << std::flush;
     previous_frame_size_ = frame->size();
   }
   webrtc::DesktopSize output_size(capture_width_ & ~1, capture_height_ & ~1);

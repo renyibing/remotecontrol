@@ -7,6 +7,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <unordered_map>
 
 // SDL
 #include <SDL3/SDL.h>
@@ -145,6 +146,12 @@ class SDLRenderer : public VideoTrackReceiver {
       std::pair<webrtc::VideoTrackInterface*, std::unique_ptr<Sink> > >
       VideoTrackSinkVector;
   VideoTrackSinkVector sinks_;
+  struct CachedTexture {
+    SDL_Texture* texture{nullptr};
+    int width{0};
+    int height{0};
+  };
+  std::unordered_map<Sink*, CachedTexture> sink_textures_;
   std::atomic<bool> running_;
   SDL_Thread* thread_;
   SDL_Window* window_;

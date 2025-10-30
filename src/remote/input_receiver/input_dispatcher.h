@@ -91,10 +91,10 @@ class InputDispatcher {
       if (auto key = proto::JsonGetString(sv, "key")) k.key = *key;
       if (k.code == SDLK_UP || k.code == SDLK_DOWN ||
           k.code == SDLK_LEFT || k.code == SDLK_RIGHT) {
-        std::cout << "[input] DataChannel recv key=" << k.key
-                  << " code=" << k.code
-                  << " down=" << (k.down ? "true" : "false")
-                  << " mods=" << k.mods << std::endl;
+        // std::cout << "[input] DataChannel recv key=" << k.key
+                  // << " code=" << k.code
+                  // << " down=" << (k.down ? "true" : "false")
+                  // << " mods=" << k.mods << std::endl;
       }
       injector_->InjectKeyboard(k);
       return;

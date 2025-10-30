@@ -211,7 +211,7 @@ class LogTransaction {
 public:
     LogTransaction(Logger *pLogger, LogLevel level, const char *szFile, const int nLine, const char *szFunc) : pLogger(pLogger), level(level) {
         if (!pLogger) {
-            std::cout << "[-----] ";
+            // std::cout << "[-----] ";
             return;
         }
         if (!pLogger->ShouldLogFor(level)) {
@@ -222,7 +222,7 @@ public:
     }
     ~LogTransaction() {
         if (!pLogger) {
-            std::cout << std::endl;
+            // std::cout << std::endl;
             return;
         }
         if (!pLogger->ShouldLogFor(level)) {
