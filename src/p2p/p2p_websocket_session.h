@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <memory>
 #include <string>
+#include <vector>
 
 // Boost
 #include <boost/asio/ip/tcp.hpp>
@@ -18,7 +19,14 @@
 #include "websocket.h"
 
 struct P2PWebsocketSessionConfig {
+  struct IceServerConfig {
+    std::vector<std::string> urls;
+    std::string username;
+    std::string credential;
+  };
+
   bool no_google_stun = false;
+  std::vector<IceServerConfig> ice_servers;
 };
 
 class P2PWebsocketSession

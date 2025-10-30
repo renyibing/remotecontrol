@@ -49,3 +49,15 @@ CLAUDE.local.md
 
 # Serena
 .serena
+CURSOR_BUG_FIX.md
+CURSOR_DEBUG_GUIDE.md
+FPS_GAME_SUPPORT.md
+HIDDRIVER_INTEGRATION.md
+INFINITE_MOUSE_MOVEMENT.md
+MODIFIER_KEY_BUG_FIX.md
+SDL_RELATIVE_MOUSE_MODE.md
+SDL3_API_CHANGES.md
+doc/CURSOR_MONITOR.md
+third_party/vmulti-master/hiddriver.inf
+third_party/vmulti-master/install_hiddriver.ps1
+third_party/vmulti-master/test/testvmulti.vcproj

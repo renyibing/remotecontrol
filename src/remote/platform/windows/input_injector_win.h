@@ -1,5 +1,5 @@
 // Description: Windows platform input injector implementation
-// - Keyboard/mouse: SendInput/SetCursorPos
+// - Keyboard/mouse: vmulti (fallback to SendInput/SetCursorPos if initialization fails)
 // - Gamepad: dynamically load ViGEmClient.dll to inject XInput (X360) messages
 
 #ifndef REMOTE_PLATFORM_WINDOWS_INPUT_INJECTOR_WIN_H_
@@ -12,9 +12,15 @@
 #include <string>
 #include <algorithm>
 #include <iostream>
+#include <vector>
 #include <SDL3/SDL_keycode.h>
 
 #include "remote/input_receiver/input_injector.h"
+
+// vmulti client API
+extern "C" {
+#include <vmulticlient.h>
+}
 
 namespace remote {
 namespace platform {
@@ -105,11 +111,87 @@ class ViGEmDyn {
 
 class WindowsInputInjector : public remote::input_receiver::IInputInjector {
  public:
-  WindowsInputInjector() {}
-  ~WindowsInputInjector() {}
+  WindowsInputInjector() {
+    // Try to initialize hiddriver (requires hiddriver to be installed)
+    hiddriver_ = vmulti_alloc();  // API name kept for compatibility
+    if (hiddriver_) {
+      use_hiddriver_ = vmulti_connect(hiddriver_);
+      if (!use_hiddriver_) {
+        vmulti_free(hiddriver_);
+        hiddriver_ = nullptr;
+        std::cout << "[input_injector] hiddriver not found or access denied" << std::endl;
+        std::cout << "[input_injector] Possible reasons:" << std::endl;
+        std::cout << "[input_injector]   1. hiddriver not installed (xrcloud\\hiddriver)" << std::endl;
+        std::cout << "[input_injector]   2. Insufficient permissions (run as Administrator)" << std::endl;
+        std::cout << "[input_injector]   3. Device not accessible" << std::endl;
+        std::cout << "[input_injector] Falling back to SendInput method" << std::endl;
+      } else {
+        std::cout << "[input_injector] hiddriver connected successfully" << std::endl;
+      }
+    } else {
+      std::cout << "[input_injector] Failed to allocate hiddriver client, using SendInput" << std::endl;
+    }
+  }
+  
+  ~WindowsInputInjector() {
+    if (hiddriver_) {
+      vmulti_disconnect(hiddriver_);
+      vmulti_free(hiddriver_);
+      hiddriver_ = nullptr;
+    }
+  }
 
   // Keyboard injection
   void InjectKeyboard(const remote::proto::KeyboardMsg& ev) override {
+    // Try hiddriver first
+    if (use_hiddriver_ && hiddriver_) {
+      bool is_modifier = IsModifierKey(ev.code);
+      
+      if (is_modifier) {
+        // For modifier keys, update HID modifier state based on key identity
+        BYTE hid_bit = GetHidModifierBit(ev.code);
+        if (hid_bit == 0) {
+          goto use_sendinput;  // Unknown modifier, fallback
+        }
+        if (ev.down) {
+          hid_modifiers_ |= hid_bit;
+        } else {
+          hid_modifiers_ &= static_cast<BYTE>(~hid_bit);
+        }
+      } else {
+        // For non-modifier keys, update key state normally
+        BYTE hid_code = MapKeyToHIDScancode(ev);
+        if (hid_code != 0) {
+          if (ev.down) {
+            UpdateKeyState(hid_code, true);
+          } else {
+            UpdateKeyState(hid_code, false);
+          }
+        } else {
+          // Unknown key, fall through to SendInput
+          goto use_sendinput;
+        }
+      }
+      
+      // Always send HID report when using hiddriver (for both modifiers and regular keys)
+      BYTE shift_flags = hid_modifiers_;
+      
+      BYTE key_codes[KBD_KEY_CODES] = {0};
+      size_t idx = 0;
+      for (BYTE code : pressed_keys_) {
+        if (idx >= KBD_KEY_CODES) break;
+        key_codes[idx++] = code;
+      }
+      
+      if (vmulti_update_keyboard(hiddriver_, shift_flags, key_codes)) {
+        return;  // Success with hiddriver
+      }
+      // Fall through to SendInput if hiddriver fails
+    }
+    
+use_sendinput:
+    
+    // Fallback to SendInput
     WORD vk = MapKey(ev);
     if (vk == 0) return;
     INPUT in{};
@@ -131,12 +213,37 @@ class WindowsInputInjector : public remote::input_receiver::IInputInjector {
 
   // Mouse absolute position
   void InjectMouseAbs(float x, float y, const remote::proto::Buttons& btns) override {
+    if (use_hiddriver_ && hiddriver_) {
+      // Map screen coordinates to HID coordinates (0-32767)
+      USHORT hid_x = static_cast<USHORT>(std::clamp(x / static_cast<float>(GetSystemMetrics(SM_CXSCREEN)) * MOUSE_MAX_COORDINATE, 0.0f, static_cast<float>(MOUSE_MAX_COORDINATE)));
+      USHORT hid_y = static_cast<USHORT>(std::clamp(y / static_cast<float>(GetSystemMetrics(SM_CYSCREEN)) * MOUSE_MAX_COORDINATE, 0.0f, static_cast<float>(MOUSE_MAX_COORDINATE)));
+      BYTE button_flags = ConvertMouseButtons(btns.bits);
+      
+      if (vmulti_update_mouse(hiddriver_, button_flags, hid_x, hid_y, 0)) {
+        last_btns_ = btns.bits;
+        return;
+      }
+    }
+    
+    // Fallback to SendInput
     ::SetCursorPos(static_cast<int>(x), static_cast<int>(y));
     UpdateButtons(btns.bits);
   }
 
   // Mouse relative position
   void InjectMouseRel(float dx, float dy, const remote::proto::Buttons& btns) override {
+    if (use_hiddriver_ && hiddriver_) {
+      BYTE button_flags = ConvertMouseButtons(btns.bits);
+      BYTE rel_x = static_cast<BYTE>(std::clamp(dx, static_cast<float>(RELATIVE_MOUSE_MIN_COORDINATE), static_cast<float>(RELATIVE_MOUSE_MAX_COORDINATE)));
+      BYTE rel_y = static_cast<BYTE>(std::clamp(dy, static_cast<float>(RELATIVE_MOUSE_MIN_COORDINATE), static_cast<float>(RELATIVE_MOUSE_MAX_COORDINATE)));
+      
+      if (vmulti_update_relative_mouse(hiddriver_, button_flags, rel_x, rel_y, 0)) {
+        last_btns_ = btns.bits;
+        return;
+      }
+    }
+    
+    // Fallback to SendInput
     INPUT in{};
     in.type = INPUT_MOUSE;
     in.mi.dwFlags = MOUSEEVENTF_MOVE;
@@ -325,8 +432,166 @@ class WindowsInputInjector : public remote::input_receiver::IInputInjector {
     last_btns_ = btns;
   }
 
+  // Convert button bits to vmulti format
+  BYTE ConvertMouseButtons(uint32_t btns) const {
+    BYTE result = 0;
+    if (btns & (1u << 0)) result |= MOUSE_BUTTON_1;  // Left
+    if (btns & (1u << 2)) result |= MOUSE_BUTTON_2;  // Right
+    if (btns & (1u << 1)) result |= MOUSE_BUTTON_3;  // Middle
+    return result;
+  }
+
+  // Map SDL keycode to USB HID scancode
+  // Reference: http://www.usb.org/developers/devclass_docs/Hut1_11.pdf
+  BYTE MapKeyToHIDScancode(const remote::proto::KeyboardMsg& ev) {
+    // Handle modifiers separately (these are tracked in shift flags, not key codes)
+    switch (ev.code) {
+      case SDLK_LCTRL: case SDLK_RCTRL:
+      case SDLK_LSHIFT: case SDLK_RSHIFT:
+      case SDLK_LALT: case SDLK_RALT:
+      case SDLK_LGUI: case SDLK_RGUI:
+        return 0;  // Handled by modifier flags
+    }
+    
+    // Letters A-Z
+    if (ev.code >= 'a' && ev.code <= 'z') return 0x04 + (ev.code - 'a');
+    if (ev.code >= 'A' && ev.code <= 'Z') return 0x04 + (ev.code - 'A');
+    
+    // Numbers 1-9, 0
+    if (ev.code >= '1' && ev.code <= '9') return 0x1E + (ev.code - '1');
+    if (ev.code == '0') return 0x27;
+    
+    // Special keys
+    switch (ev.code) {
+      case SDLK_RETURN: return 0x28;
+      case SDLK_ESCAPE: return 0x29;
+      case SDLK_BACKSPACE: return 0x2A;
+      case SDLK_TAB: return 0x2B;
+      case SDLK_SPACE: return 0x2C;
+      case SDLK_MINUS: return 0x2D;
+      case SDLK_EQUALS: return 0x2E;
+      case SDLK_LEFTBRACKET: return 0x2F;
+      case SDLK_RIGHTBRACKET: return 0x30;
+      case SDLK_BACKSLASH: return 0x31;
+      case SDLK_SEMICOLON: return 0x33;
+      case SDLK_APOSTROPHE: return 0x34;
+      case SDLK_GRAVE: return 0x35;
+      case SDLK_COMMA: return 0x36;
+      case SDLK_PERIOD: return 0x37;
+      case SDLK_SLASH: return 0x38;
+      case SDLK_CAPSLOCK: return 0x39;
+      
+      // Function keys F1-F12
+      case SDLK_F1: return 0x3A;
+      case SDLK_F2: return 0x3B;
+      case SDLK_F3: return 0x3C;
+      case SDLK_F4: return 0x3D;
+      case SDLK_F5: return 0x3E;
+      case SDLK_F6: return 0x3F;
+      case SDLK_F7: return 0x40;
+      case SDLK_F8: return 0x41;
+      case SDLK_F9: return 0x42;
+      case SDLK_F10: return 0x43;
+      case SDLK_F11: return 0x44;
+      case SDLK_F12: return 0x45;
+      
+      // Navigation keys
+      case SDLK_PRINTSCREEN: return 0x46;
+      case SDLK_SCROLLLOCK: return 0x47;
+      case SDLK_PAUSE: return 0x48;
+      case SDLK_INSERT: return 0x49;
+      case SDLK_HOME: return 0x4A;
+      case SDLK_PAGEUP: return 0x4B;
+      case SDLK_DELETE: return 0x4C;
+      case SDLK_END: return 0x4D;
+      case SDLK_PAGEDOWN: return 0x4E;
+      case SDLK_RIGHT: return 0x4F;
+      case SDLK_LEFT: return 0x50;
+      case SDLK_DOWN: return 0x51;
+      case SDLK_UP: return 0x52;
+      
+      // Numpad
+      case SDLK_NUMLOCKCLEAR: return 0x53;
+      case SDLK_KP_DIVIDE: return 0x54;
+      case SDLK_KP_MULTIPLY: return 0x55;
+      case SDLK_KP_MINUS: return 0x56;
+      case SDLK_KP_PLUS: return 0x57;
+      case SDLK_KP_ENTER: return 0x58;
+      case SDLK_KP_1: return 0x59;
+      case SDLK_KP_2: return 0x5A;
+      case SDLK_KP_3: return 0x5B;
+      case SDLK_KP_4: return 0x5C;
+      case SDLK_KP_5: return 0x5D;
+      case SDLK_KP_6: return 0x5E;
+      case SDLK_KP_7: return 0x5F;
+      case SDLK_KP_8: return 0x60;
+      case SDLK_KP_9: return 0x61;
+      case SDLK_KP_0: return 0x62;
+      case SDLK_KP_PERIOD: return 0x63;
+      
+      // Additional keys
+      case SDLK_APPLICATION: return 0x65;
+      
+      default: return 0;
+    }
+  }
+
+  // Check if a key is a modifier key
+  bool IsModifierKey(int code) const {
+    switch (code) {
+      case SDLK_LCTRL: case SDLK_RCTRL:
+      case SDLK_LSHIFT: case SDLK_RSHIFT:
+      case SDLK_LALT: case SDLK_RALT:
+      case SDLK_LGUI: case SDLK_RGUI:
+        return true;
+      default:
+        return false;
+    }
+  }
+  
+  // Get the HID modifier bit for a specific modifier key
+  BYTE GetHidModifierBit(int code) const {
+    switch (code) {
+      case SDLK_LCTRL:  return KBD_LCONTROL_BIT;
+      case SDLK_RCTRL:  return KBD_RCONTROL_BIT;
+      case SDLK_LSHIFT: return KBD_LSHIFT_BIT;
+      case SDLK_RSHIFT: return KBD_RSHIFT_BIT;
+      case SDLK_LALT:   return KBD_LALT_BIT;
+      case SDLK_RALT:   return KBD_RALT_BIT;
+      case SDLK_LGUI:   return KBD_LGUI_BIT;
+      case SDLK_RGUI:   return KBD_RGUI_BIT;
+      default:
+        return 0;
+    }
+  }
+
+  // Update key state for vmulti keyboard reports (non-modifier keys only)
+  void UpdateKeyState(BYTE hid_code, bool is_down) {
+    if (is_down) {
+      // Add to pressed keys if not already present
+      if (std::find(pressed_keys_.begin(), pressed_keys_.end(), hid_code) == pressed_keys_.end()) {
+        if (pressed_keys_.size() < KBD_KEY_CODES) {
+          pressed_keys_.push_back(hid_code);
+        }
+      }
+    } else {
+      // Remove from pressed keys
+      pressed_keys_.erase(
+        std::remove(pressed_keys_.begin(), pressed_keys_.end(), hid_code),
+        pressed_keys_.end()
+      );
+    }
+  }
+
+  // Member variables
   ViGEmDyn vigem_;
   uint32_t last_btns_{0};
+  
+  // hiddriver support
+  pvmulti_client hiddriver_{nullptr};
+  bool use_hiddriver_{false};
+  std::vector<BYTE> pressed_keys_;
+  BYTE hid_modifiers_{0}; // New member for HID modifier bits
 };
 
 }  // namespace windows

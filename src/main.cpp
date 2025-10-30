@@ -363,6 +363,19 @@ int main(int argc, char* argv[]) {
     sdl_input_capture =
         std::make_unique<remote::input_sender::SdlInputCapture>();
 
+    // Set SDL window for relative mouse mode (SDL3 requires window pointer)
+    sdl_input_capture->SetWindow(sdl_renderer->GetWindow());
+
+    // Auto-switch mouse mode based on cursor visibility (FPS game support)
+    overlay_renderer->SetMouseModeCallback(
+        [cap = sdl_input_capture.get()](bool use_relative) {
+          using remote::input_sender::MouseMode;
+          cap->SetMouseMode(use_relative ? MouseMode::Relative : MouseMode::Absolute);
+          RTC_LOG(LS_INFO) << "Auto-switched mouse mode to " 
+                           << (use_relative ? "Relative" : "Absolute") 
+                           << " based on cursor visibility";
+        });
+
     // Register the overlay render callback
     sdl_renderer->SetOverlayRenderCallback(
         [orptr = overlay_renderer.get()](SDL_Renderer* r) {

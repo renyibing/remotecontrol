@@ -27,6 +27,7 @@ class OverlayRenderer {
   using ReliableSender = std::function<bool(const std::vector<uint8_t>&)>;
   using RtSender = std::function<bool(const std::vector<uint8_t>&)>;
   using UiCommand = std::function<void(const std::string& cmd, bool value)>;
+  using MouseModeCallback = std::function<void(bool use_relative)>;
 
   // Render (call after video frame)
   void Render(SDL_Renderer* r) {
@@ -46,12 +47,19 @@ class OverlayRenderer {
         inside(toolbar_buttons_area_, mx, my);
     const bool over_keyboard =
         keyboard_visible_ && inside(vk_full_.GetKeyboardRect(), mx, my);
-    // Hide OS cursor only when there is a valid remote cursor image
+    // Hide OS cursor when:
+    // 1. There is a valid remote cursor image (has_image=true) - show custom cursor
+    // 2. Sender explicitly set cursor invisible (cursor_.visible=false) - hide cursor in FPS games
+    // Show OS cursor only when over toolbar/keyboard (local UI elements)
     if (over_toolbar || over_keyboard) {
       SDL_ShowCursor();
     } else if (has_image) {
       SDL_HideCursor();
+    } else if (!cursor_.visible) {
+      // Sender explicitly set cursor invisible (e.g., FPS game)
+      SDL_HideCursor();
     } else {
+      // No cursor data received yet, show default OS cursor
       SDL_ShowCursor();
     }
     if (has_image && !(over_toolbar || over_keyboard)) {
@@ -92,7 +100,21 @@ class OverlayRenderer {
 
   // State update
   void SetCursorImage(const remote::proto::CursorImageMsg& img) {
+    bool was_visible = cursor_.visible;
     cursor_ = img;
+    
+    // Debug: log received cursor image
+    std::cout << "[OverlayRenderer] Received cursor: visible=" << img.visible
+              << " size=" << img.w << "x" << img.h
+              << " hotspot=(" << img.hotspotX << "," << img.hotspotY << ")"
+              << " data_size=" << img.rgba.size() << std::endl;
+    
+    // Auto-switch mouse mode based on cursor visibility (FPS game support)
+    // When sender's cursor becomes invisible (e.g., enters FPS game), switch to relative mode
+    // When cursor becomes visible again, switch back to absolute mode
+    if (mouse_mode_cb_ && was_visible != img.visible) {
+      mouse_mode_cb_(!img.visible);  // invisible -> use relative mode
+    }
   }
   void SetImeState(const remote::proto::ImeStateMsg& st) { ime_state_ = st; }
   void SetSenders(ReliableSender reliable, RtSender rt) {
@@ -100,6 +122,7 @@ class OverlayRenderer {
     rt_ = std::move(rt);
   }
   void SetUiCommand(UiCommand cb) { ui_cmd_ = std::move(cb); }
+  void SetMouseModeCallback(MouseModeCallback cb) { mouse_mode_cb_ = std::move(cb); }
   void SetKeyboardOpacity(float a) { vk_full_.SetOpacity(a); }
   void ToggleKeyboardVisibility() { keyboard_visible_ = !keyboard_visible_; }
   bool IsKeyboardVisible() const { return keyboard_visible_; }
@@ -199,6 +222,7 @@ class OverlayRenderer {
   ReliableSender reliable_{};
   RtSender rt_{};
   UiCommand ui_cmd_{};
+  MouseModeCallback mouse_mode_cb_{};
   remote::proto::ImeStateMsg ime_state_{};
 
   // Keyboard

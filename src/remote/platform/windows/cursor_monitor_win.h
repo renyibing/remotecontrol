@@ -24,11 +24,13 @@ namespace windows {
 class CursorMonitorWin {
  public:
   using Sender = std::function<bool(const std::vector<uint8_t>&)>;
+  using VisibilityCallback = std::function<void(bool visible)>;
 
   CursorMonitorWin() = default;
   ~CursorMonitorWin() { Stop(); }
 
   void SetSender(Sender s) { sender_ = std::move(s); }
+  void SetVisibilityCallback(VisibilityCallback cb) { visibility_cb_ = std::move(cb); }
 
   void Start() {
     if (running_.exchange(true))
@@ -42,16 +44,50 @@ class CursorMonitorWin {
       th_.join();
   }
 
+  // Force refresh: clear cache and resend current cursor on next loop iteration
+  // Call this when receiver reconnects or requests cursor update
+  void ForceRefresh() {
+    force_refresh_.store(true);
+  }
+
  private:
   void Loop() {
     std::string last_sig;
+    bool last_visible = false;  // Initialize to false to match Capture() default
+    bool first_capture = true;  // Force send on first capture
+    
     for (; running_.load();) {
       remote::proto::CursorImageMsg msg;
-      if (Capture(msg)) {
-        std::string sig = Signature(msg);
-        if (sig != last_sig) {
+      // Capture always succeeds now, returning either visible or invisible cursor
+      Capture(msg);
+      
+      // Notify visibility changes for mouse mode switching (FPS game support)
+      if (msg.visible != last_visible) {
+        last_visible = msg.visible;
+        std::cout << "[CursorMonitor] Cursor visibility changed: " 
+                  << (msg.visible ? "visible" : "invisible") << std::endl;
+        if (visibility_cb_) {
+          visibility_cb_(msg.visible);
+        }
+      }
+      
+      bool force = force_refresh_.exchange(false);
+      std::string sig = Signature(msg);
+      // Send if cursor changed OR force refresh requested OR first capture
+      if (first_capture || sig != last_sig || force) {
+        bool send_ok = Send(msg);
+        if (send_ok) {
+          if (first_capture) {
+            first_capture = false;
+          }
           last_sig = sig;
-          Send(msg);
+        } else {
+          std::cout << "[CursorMonitor] Send cursor message failed, will retry" << std::endl;
+          // If send failed, restore force flag so we retry on next iteration
+          if (force) {
+            force_refresh_.store(true);
+          }
+          // Keep first_capture true to retry until successful
         }
       }
       Sleep(300);
@@ -59,12 +95,25 @@ class CursorMonitorWin {
   }
 
   bool Send(const remote::proto::CursorImageMsg& msg) {
-    if (!sender_)
+    if (!sender_) {
+      std::cout << "[CursorMonitor] No sender configured!" << std::endl;
       return false;
+    }
+    
+    // Debug: log cursor state
+    std::cout << "[CursorMonitor] Sending cursor: visible=" << msg.visible
+              << " size=" << msg.w << "x" << msg.h
+              << " hotspot=(" << msg.hotspotX << "," << msg.hotspotY << ")"
+              << " data_size=" << msg.rgba.size() << std::endl;
+    
 #ifdef REMOTE_USE_PROTOBUF
     auto pb = remote::proto::PbSerializeCursorImage(msg);
-    if (!pb.empty())
-      return sender_(pb);
+    if (!pb.empty()) {
+      bool result = sender_(pb);
+      std::cout << "[CursorMonitor] Sent via Protobuf, result=" << result
+                << " size=" << pb.size() << " bytes" << std::endl;
+      return result;
+    }
 #endif
     // Fallback JSON: {"type":"cursorImage",...}
     std::vector<uint8_t> bytes;
@@ -78,28 +127,46 @@ class CursorMonitorWin {
         ",\"fmt\":\"BGRA\",\"visible\":" + (msg.visible ? "true" : "false") +
         ",\"data\":\"" + b64 + "\"}";
     bytes.assign(s.begin(), s.end());
-    return sender_(bytes);
+    bool result = sender_(bytes);
+    std::cout << "[CursorMonitor] Sent via JSON, result=" << result
+              << " size=" << bytes.size() << " bytes" << std::endl;
+    return result;
   }
 
   // Capture current system cursor as RGBA (BGRA32) + hotspot
+  // Always returns true with a valid message (visible or invisible cursor)
   bool Capture(remote::proto::CursorImageMsg& out) {
+    // Initialize with "invisible" state as default
+    out.visible = false;
+    out.w = 1;
+    out.h = 1;
+    out.hotspotX = 0;
+    out.hotspotY = 0;
+    out.rgba.assign(4, 0);  // 1x1 transparent pixel (BGRA)
+
     CURSORINFO ci{};
     ci.cbSize = sizeof(ci);
-    if (!GetCursorInfo(&ci))
-      return false;
-    out.visible = (ci.flags == CURSOR_SHOWING);
+    if (!GetCursorInfo(&ci)) {
+      std::cout << "[CursorMonitor] GetCursorInfo failed, error=" << GetLastError() << std::endl;
+      return true;  // Return invisible cursor if GetCursorInfo fails
+    }
+    
+    if (ci.flags != CURSOR_SHOWING) {
+      std::cout << "[CursorMonitor] Cursor not showing, flags=" << ci.flags << std::endl;
+      return true;  // Return invisible cursor if not showing (e.g., FPS games)
+    }
 
     HICON hIcon = (HICON)CopyIcon(ci.hCursor);
-    if (!hIcon)
-      return false;
+    if (!hIcon) {
+      std::cout << "[CursorMonitor] CopyIcon failed, error=" << GetLastError() << std::endl;
+      return true;  // Return invisible cursor if CopyIcon fails
+    }
 
     ICONINFO ii{};
     if (!GetIconInfo(hIcon, &ii)) {
       DestroyIcon(hIcon);
-      return false;
+      return true;  // Return invisible cursor if GetIconInfo fails
     }
-    out.hotspotX = static_cast<int>(ii.xHotspot);
-    out.hotspotY = static_cast<int>(ii.yHotspot);
 
     // Calculate width and height: color bitmap preferred; monochrome cursor uses half the mask height
     int width = 0, height = 0;
@@ -117,12 +184,18 @@ class CursorMonitorWin {
     }
     if (width <= 0 || height <= 0) {
       CleanupIcon(ii, hIcon);
-      return false;
+      return true;  // Return invisible cursor if dimensions invalid
     }
 
+    // From this point on, we have a valid visible cursor
+    out.visible = true;
+    out.hotspotX = static_cast<int>(ii.xHotspot);
+    out.hotspotY = static_cast<int>(ii.yHotspot);
     out.w = width;
     out.h = height;
     out.rgba.resize(static_cast<size_t>(out.w) * out.h * 4);
+    
+    std::cout << "[CursorMonitor] Captured visible cursor: " << width << "x" << height << std::endl;
 
     // Use DrawIconEx to render to 32-bit DIB (BGRA), handle both color and monochrome double mask cursors uniformly
     BITMAPINFO bmi{};
@@ -142,19 +215,37 @@ class CursorMonitorWin {
       if (hdc)
         DeleteDC(hdc);
       CleanupIcon(ii, hIcon);
-      return false;
+      // Reset to invisible state before returning
+      out.visible = false;
+      out.w = 1;
+      out.h = 1;
+      out.rgba.assign(4, 0);
+      return true;  // Return invisible cursor if DIB creation fails
     }
     HGDIOBJ old = SelectObject(hdc, dib);
     // Clear background to fully transparent
     memset(bits, 0x00, static_cast<size_t>(out.w) * out.h * 4);
     // Draw system cursor to DIB
     DrawIconEx(hdc, 0, 0, hIcon, out.w, out.h, 0, NULL, DI_NORMAL);
-    // Copy BGRA pixels (first copy RGB, then correct alpha)
+    // Copy BGRA pixels to output buffer
     memcpy(out.rgba.data(), bits, static_cast<size_t>(out.w) * out.h * 4);
+    
+    // Check if this is a color cursor with valid alpha channel
+    bool has_color_with_alpha = false;
+    if (ii.hbmColor) {
+      // For color cursors, check if any pixel has valid alpha
+      for (size_t i = 3; i < out.rgba.size(); i += 4) {
+        if (out.rgba[i] > 0) {
+          has_color_with_alpha = true;
+          break;
+        }
+      }
+    }
 
-    // If there is a mask (double-color or GDI does not write alpha), use AND/XOR mask to complete alpha;
-    // Visible condition: (AND==0) or (XOR==1). Transparent: (AND==1 and XOR==0).
-    if (ii.hbmMask) {
+    // Process mask for transparency
+    // For color cursors with valid alpha, skip mask processing
+    // For monochrome or color cursors without alpha, use mask to determine transparency
+    if (ii.hbmMask && !has_color_with_alpha) {
       const int mask_stride =
           ((out.w + 31) / 32) * 4;  // Bytes per row (1bpp, 32-aligned)
       const int rows = out.h * 2;   // Top AND, bottom XOR
@@ -289,22 +380,28 @@ class CursorMonitorWin {
           }
         }
       }
-    } else {
-      // When there is no mask but all alpha is 0, use RGB non-zero as the opaque condition
-      bool any_alpha = false;
-      for (size_t i = 3; i < out.rgba.size(); i += 4) {
-        if (out.rgba[i]) {
-          any_alpha = true;
-          break;
+    } else if (!has_color_with_alpha) {
+      // No mask and no valid alpha channel
+      // For color cursors without proper alpha, treat RGB(0,0,0) as transparent
+      if (ii.hbmColor) {
+        for (size_t p = 0; p < out.rgba.size(); p += 4) {
+          uint8_t b = out.rgba[p + 0], g = out.rgba[p + 1], r = out.rgba[p + 2];
+          // Treat pure black as transparent (common for cursor backgrounds)
+          if (r == 0 && g == 0 && b == 0) {
+            out.rgba[p + 3] = 0;  // Transparent
+          } else {
+            out.rgba[p + 3] = 255;  // Opaque
+          }
         }
-      }
-      if (!any_alpha) {
+      } else {
+        // Monochrome cursor without mask - shouldn't happen, but handle it
         for (size_t p = 0; p < out.rgba.size(); p += 4) {
           uint8_t b = out.rgba[p + 0], g = out.rgba[p + 1], r = out.rgba[p + 2];
           out.rgba[p + 3] = (r | g | b) ? 255 : 0;
         }
       }
     }
+    // else: has_color_with_alpha is true, alpha channel is already valid from DrawIconEx
     // Clean up GDI resources
     SelectObject(hdc, old);
     DeleteObject(dib);
@@ -342,8 +439,10 @@ class CursorMonitorWin {
   }
 
   std::atomic<bool> running_{false};
+  std::atomic<bool> force_refresh_{false};
   std::thread th_;
   Sender sender_;
+  VisibilityCallback visibility_cb_;
 };
 
 }  // namespace windows

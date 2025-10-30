@@ -30,11 +30,31 @@ class SdlInputCapture {
     rt_ = std::move(rt);
   }
 
+  void SetWindow(SDL_Window* window) {
+    window_ = window;
+  }
+
   void UpdateMapping(const common::Rect& sdlRect, const common::Size& recvSize) {
     mapper_.UpdateMapping(sdlRect, recvSize);
   }
 
-  void SetMouseMode(MouseMode mode) { mode_ = mode; }
+  void SetMouseMode(MouseMode mode) { 
+    mode_ = mode;
+    // Enable SDL relative mouse mode for FPS games
+    // This keeps the cursor locked and always sends relative deltas
+    if (!window_) {
+      std::cout << "[SdlInputCapture] Warning: Window not set, cannot enable relative mouse mode" << std::endl;
+      return;
+    }
+    
+    if (mode == MouseMode::Relative) {
+      SDL_SetWindowRelativeMouseMode(window_, true);
+      std::cout << "[SdlInputCapture] Enabled SDL relative mouse mode (FPS mode)" << std::endl;
+    } else {
+      SDL_SetWindowRelativeMouseMode(window_, false);
+      std::cout << "[SdlInputCapture] Disabled SDL relative mouse mode (normal mode)" << std::endl;
+    }
+  }
 
   // Extract mouse/keyboard from SDL events, assemble protocol messages
   // Current skeleton, serialization/sending carried by the callbacks provided by SetSenders
@@ -138,6 +158,7 @@ class SdlInputCapture {
   MouseMapper mapper_{};
   ReliableSender reliable_{};
   RtSender rt_{};
+  SDL_Window* window_{nullptr};
 };
 
 }  // namespace input_sender

@@ -143,7 +143,15 @@ void P2PWebsocketSession::OnRead(boost::system::error_code ec,
 std::shared_ptr<RTCConnection> P2PWebsocketSession::CreateRTCConnection() {
   webrtc::PeerConnectionInterface::RTCConfiguration rtc_config;
   webrtc::PeerConnectionInterface::IceServers servers;
-  if (!config_.no_google_stun) {
+  for (const auto& server_cfg : config_.ice_servers) {
+    webrtc::PeerConnectionInterface::IceServer ice_server;
+    ice_server.urls = server_cfg.urls;
+    ice_server.username = server_cfg.username;
+    ice_server.password = server_cfg.credential;
+    servers.push_back(std::move(ice_server));
+  }
+
+  if (servers.empty() && !config_.no_google_stun) {
     webrtc::PeerConnectionInterface::IceServer ice_server;
     ice_server.uri = "stun:stun.l.google.com:19302";
     servers.push_back(ice_server);

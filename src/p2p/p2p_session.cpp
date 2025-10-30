@@ -68,6 +68,23 @@ void P2PSession::OnRead(boost::system::error_code ec,
     if (boost::beast::websocket::is_upgrade(req_)) {
       P2PWebsocketSessionConfig config;
       config.no_google_stun = config_.no_google_stun;
+      // Default Coturn/STUN servers (until configurable via WebSocket)
+      P2PWebsocketSessionConfig::IceServerConfig stun_server;
+      stun_server.urls = {"stun:xxx.xxx.xxx.xxx:xxxx"};
+      config.ice_servers.push_back(stun_server);
+
+      P2PWebsocketSessionConfig::IceServerConfig turn_server_udp;
+      turn_server_udp.urls = {"turn:xxx.xxx.xxx.xxx:xxxx?transport=udp"};
+      turn_server_udp.username = "x";
+      turn_server_udp.credential = "x";
+      config.ice_servers.push_back(turn_server_udp);
+
+      P2PWebsocketSessionConfig::IceServerConfig turn_server_tcp;
+      turn_server_tcp.urls = {"turn:xxx.xxx.xxx.xxx:xxxx?transport=tcp"};
+      turn_server_tcp.username = "x";
+      turn_server_tcp.credential = "x";
+      config.ice_servers.push_back(turn_server_tcp);
+
       ws_session_ = P2PWebsocketSession::Create(
           ioc_, std::move(socket_), rtc_manager_, std::move(config));
       ws_session_->Run(std::move(req_));

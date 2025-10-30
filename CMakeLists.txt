@@ -187,6 +187,31 @@ target_link_libraries(momo
     uiohook
 )
 
+# hiddriver client library for Windows keyboard/mouse injection
+if ("${TARGET_OS}" STREQUAL "windows")
+  # Create hiddriver_client static library
+  # hiddriver uses xrcloud\hiddriver hardware ID
+  add_library(hiddriver_client STATIC
+    third_party/vmulti-master/client/hiddriverclient.c
+  )
+  
+  # Set include directories for hiddriver_client (PUBLIC so consumers inherit it)
+  target_include_directories(hiddriver_client 
+    PUBLIC
+      ${CMAKE_CURRENT_SOURCE_DIR}/third_party/vmulti-master/inc
+  )
+  
+  # Link system libraries for hiddriver_client
+  target_link_libraries(hiddriver_client 
+    PRIVATE
+      hid
+      setupapi
+  )
+  
+  # Link hiddriver_client to momo (PUBLIC include dirs are inherited automatically)
+  target_link_libraries(momo PRIVATE hiddriver_client)
+endif()
+
 target_compile_definitions(momo
   PRIVATE
     # CLI11 uses std::filesystem in C++17 builds, but to resolve this with clang, linking c++fs is required.
