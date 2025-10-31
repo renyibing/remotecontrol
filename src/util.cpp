@@ -1,15 +1,22 @@
 #include "util.h"
 
 #include <regex>
+#include <stdexcept>
+#include <sstream>
+#include <vector>
+#include <iostream>
 
 // CLI11
 #include <CLI/CLI.hpp>
 
 // Boost
+#include <boost/algorithm/string.hpp>
 #include <boost/beast/version.hpp>
 #include <boost/filesystem/operations.hpp>
 #include <boost/filesystem/path.hpp>
 #include <boost/json.hpp>
+#include <boost/property_tree/ini_parser.hpp>
+#include <boost/property_tree/ptree.hpp>
 #include <boost/optional/optional.hpp>
 #include <boost/optional/optional_io.hpp>
 #include <boost/preprocessor/stringize.hpp>
@@ -21,6 +28,383 @@
 
 // Maximum frame rate constant
 constexpr int MAX_FRAMERATE = 120;
+
+namespace {
+
+namespace fs = boost::filesystem;
+
+enum class ConfigOptionType {
+  Flag,
+  Value,
+  MultiValue,
+  BoolValue,
+  OptionalBool,
+  LibcameraControl,
+  Serial,
+  Json,
+};
+
+struct ConfigOptionSpec {
+  const char* section;
+  const char* key;
+  const char* option;
+  ConfigOptionType type;
+};
+
+std::string TrimAndStripQuotes(const std::string& input) {
+  auto result = boost::algorithm::trim_copy(input);
+  if (result.size() >= 2) {
+    auto first = result.front();
+    auto last = result.back();
+    if ((first == '"' && last == '"') || (first == '\'' && last == '\'')) {
+      result = result.substr(1, result.size() - 2);
+    }
+  }
+  return result;
+}
+
+bool ParseBool(const std::string& value, bool* parsed) {
+  auto lowered = boost::algorithm::to_lower_copy(boost::algorithm::trim_copy(value));
+  if (lowered.empty()) {
+    return false;
+  }
+
+  if (lowered == "true" || lowered == "1" || lowered == "yes" ||
+      lowered == "on") {
+    *parsed = true;
+    return true;
+  }
+  if (lowered == "false" || lowered == "0" || lowered == "no" ||
+      lowered == "off") {
+    *parsed = false;
+    return true;
+  }
+  return false;
+}
+
+std::vector<std::string> ParseValueList(const std::string& value) {
+  std::string normalized = value;
+  for (auto& ch : normalized) {
+    if (ch == ',' || ch == ';' || ch == '\n' || ch == '\r' || ch == '\t') {
+      ch = ' ';
+    }
+  }
+
+  std::istringstream iss(normalized);
+  std::string token;
+  std::vector<std::string> results;
+  while (iss >> token) {
+    results.emplace_back(TrimAndStripQuotes(token));
+  }
+  return results;
+}
+
+void AppendLibcameraControlArgs(const std::string& value,
+                                const ConfigOptionSpec& spec,
+                                std::vector<std::string>& args) {
+  auto entries = ParseValueList(value);
+  for (const auto& entry : entries) {
+    if (entry.empty()) {
+      continue;
+    }
+
+    std::string key;
+    std::string val;
+    auto delimiter = entry.find_first_of("=:");
+    if (delimiter != std::string::npos) {
+      key = TrimAndStripQuotes(entry.substr(0, delimiter));
+      val = TrimAndStripQuotes(entry.substr(delimiter + 1));
+    } else {
+      std::istringstream pair_stream(entry);
+      pair_stream >> key >> val;
+    }
+
+    if (key.empty() || val.empty()) {
+      throw std::runtime_error("Invalid libcamera control entry: '" + entry +
+                               "'");
+    }
+
+    args.emplace_back(spec.option);
+    args.emplace_back(key);
+    args.emplace_back(val);
+  }
+}
+
+const std::vector<ConfigOptionSpec>& GetConfigOptionSpecs() {
+  static const std::vector<ConfigOptionSpec> specs = [] {
+    std::vector<ConfigOptionSpec> items = {
+        {"general", "no_google_stun", "--no-google-stun",
+         ConfigOptionType::Flag},
+        {"general", "no_video_device", "--no-video-input-device",
+         ConfigOptionType::Flag},
+        {"general", "no_audio_device", "--no-audio-device",
+         ConfigOptionType::Flag},
+        {"general", "list_devices", "--list-devices",
+         ConfigOptionType::Flag},
+        {"general", "force_i420", "--force-i420", ConfigOptionType::Flag},
+        {"general", "force_yuy2", "--force-yuy2", ConfigOptionType::Flag},
+        {"general", "force_nv12", "--force-nv12", ConfigOptionType::Flag},
+        {"general", "hw_mjpeg_decoder", "--hw-mjpeg-decoder",
+         ConfigOptionType::BoolValue},
+        {"general", "use_libcamera", "--use-libcamera",
+         ConfigOptionType::Flag},
+        {"general", "use_libcamera_native", "--use-libcamera-native",
+         ConfigOptionType::Flag},
+        {"general", "libcamera_control", "--libcamera-control",
+         ConfigOptionType::LibcameraControl},
+        {"general", "video_device", "--video-input-device",
+         ConfigOptionType::Value},
+        {"general", "resolution", "--resolution", ConfigOptionType::Value},
+        {"general", "framerate", "--framerate", ConfigOptionType::Value},
+        {"general", "fixed_resolution", "--fixed-resolution",
+         ConfigOptionType::Flag},
+        {"general", "priority", "--priority", ConfigOptionType::Value},
+        {"general", "use_sdl", "--use-sdl", ConfigOptionType::Flag},
+        {"general", "window_width", "--window-width",
+         ConfigOptionType::Value},
+        {"general", "window_height", "--window-height",
+         ConfigOptionType::Value},
+        {"general", "fullscreen", "--fullscreen", ConfigOptionType::Flag},
+        {"general", "insecure", "--insecure", ConfigOptionType::Flag},
+        {"general", "low_latency", "--low-latency", ConfigOptionType::Flag},
+        {"general", "log_level", "--log-level", ConfigOptionType::Value},
+        {"general", "screen_capture", "--screen-capture",
+         ConfigOptionType::Flag},
+        {"general", "screen_capture_cursor", "--screen-capture-cursor",
+         ConfigOptionType::Flag},
+        {"general", "disable_echo_cancellation",
+         "--disable-echo-cancellation", ConfigOptionType::Flag},
+        {"general", "disable_auto_gain_control",
+         "--disable-auto-gain-control", ConfigOptionType::Flag},
+        {"general", "disable_noise_suppression",
+         "--disable-noise-suppression", ConfigOptionType::Flag},
+        {"general", "disable_highpass_filter",
+         "--disable-highpass-filter", ConfigOptionType::Flag},
+        {"general", "audio_output_device_index",
+         "--audio-output-device-index", ConfigOptionType::Value},
+        {"general", "audio_output_device_guid",
+         "--audio-output-device-guid", ConfigOptionType::Value},
+        {"general", "video_codec_engines", "--video-codec-engines",
+         ConfigOptionType::Flag},
+        {"general", "vp8_encoder", "--vp8-encoder", ConfigOptionType::Value},
+        {"general", "vp8_decoder", "--vp8-decoder", ConfigOptionType::Value},
+        {"general", "vp9_encoder", "--vp9-encoder", ConfigOptionType::Value},
+        {"general", "vp9_decoder", "--vp9-decoder", ConfigOptionType::Value},
+        {"general", "av1_encoder", "--av1-encoder", ConfigOptionType::Value},
+        {"general", "av1_decoder", "--av1-decoder", ConfigOptionType::Value},
+        {"general", "h264_encoder", "--h264-encoder",
+         ConfigOptionType::Value},
+        {"general", "h264_decoder", "--h264-decoder",
+         ConfigOptionType::Value},
+        {"general", "h265_encoder", "--h265-encoder",
+         ConfigOptionType::Value},
+        {"general", "h265_decoder", "--h265-decoder",
+         ConfigOptionType::Value},
+        {"general", "openh264", "--openh264", ConfigOptionType::Value},
+        {"general", "serial", "--serial", ConfigOptionType::Serial},
+        {"general", "metrics_port", "--metrics-port",
+         ConfigOptionType::Value},
+        {"general", "metrics_allow_external_ip",
+         "--metrics-allow-external-ip", ConfigOptionType::Flag},
+        {"general", "client_cert", "--client-cert", ConfigOptionType::Value},
+        {"general", "client_key", "--client-key", ConfigOptionType::Value},
+        {"general", "proxy_url", "--proxy-url", ConfigOptionType::Value},
+        {"general", "proxy_username", "--proxy-username",
+         ConfigOptionType::Value},
+        {"general", "proxy_password", "--proxy-password",
+         ConfigOptionType::Value},
+        {"general", "congestion_controller", "--cc",
+         ConfigOptionType::Value},
+        {"p2p", "document_root", "--document-root", ConfigOptionType::Value},
+        {"p2p", "port", "--port", ConfigOptionType::Value},
+        {"ayame", "signaling_url", "--signaling-url",
+         ConfigOptionType::Value},
+        {"ayame", "room_id", "--room-id", ConfigOptionType::Value},
+        {"ayame", "client_id", "--client-id", ConfigOptionType::Value},
+        {"ayame", "signaling_key", "--signaling-key",
+         ConfigOptionType::Value},
+        {"ayame", "direction", "--direction", ConfigOptionType::Value},
+        {"ayame", "video_codec_type", "--video-codec-type",
+         ConfigOptionType::Value},
+        {"ayame", "audio_codec_type", "--audio-codec-type",
+         ConfigOptionType::Value},
+        {"sora", "signaling_urls", "--signaling-urls",
+         ConfigOptionType::MultiValue},
+        {"sora", "channel_id", "--channel-id", ConfigOptionType::Value},
+        {"sora", "auto", "--auto", ConfigOptionType::Flag},
+        {"sora", "video", "--video", ConfigOptionType::BoolValue},
+        {"sora", "audio", "--audio", ConfigOptionType::BoolValue},
+        {"sora", "video_codec_type", "--video-codec-type",
+         ConfigOptionType::Value},
+        {"sora", "audio_codec_type", "--audio-codec-type",
+         ConfigOptionType::Value},
+        {"sora", "video_bit_rate", "--video-bit-rate",
+         ConfigOptionType::Value},
+        {"sora", "audio_bit_rate", "--audio-bit-rate",
+         ConfigOptionType::Value},
+        {"sora", "role", "--role", ConfigOptionType::Value},
+        {"sora", "spotlight", "--spotlight", ConfigOptionType::BoolValue},
+        {"sora", "spotlight_number", "--spotlight-number",
+         ConfigOptionType::Value},
+        {"sora", "port", "--port", ConfigOptionType::Value},
+        {"sora", "simulcast", "--simulcast", ConfigOptionType::BoolValue},
+        {"sora", "data_channel_signaling", "--data-channel-signaling",
+         ConfigOptionType::OptionalBool},
+        {"sora", "data_channel_signaling_timeout",
+         "--data-channel-signaling-timeout", ConfigOptionType::Value},
+        {"sora", "ignore_disconnect_websocket",
+         "--ignore-disconnect-websocket", ConfigOptionType::OptionalBool},
+        {"sora", "disconnect_wait_timeout",
+         "--disconnect-wait-timeout", ConfigOptionType::Value},
+        {"sora", "metadata", "--metadata", ConfigOptionType::Json},
+    };
+
+#if defined(USE_FAKE_CAPTURE_DEVICE)
+    items.emplace_back(ConfigOptionSpec{"general", "fake_capture_device",
+                                        "--fake-capture-device",
+                                        ConfigOptionType::Flag});
+#endif
+
+    return items;
+  }();
+
+  return specs;
+}
+
+std::string BuildPath(const ConfigOptionSpec& spec) {
+  if (!spec.section || std::string(spec.section).empty()) {
+    return spec.key;
+  }
+  return std::string(spec.section) + "." + spec.key;
+}
+
+void AppendOptionFromConfig(const boost::property_tree::ptree& pt,
+                            const ConfigOptionSpec& spec,
+                            std::vector<std::string>& args) {
+  auto path = BuildPath(spec);
+  auto value_optional = pt.get_optional<std::string>(path);
+  if (!value_optional) {
+    return;
+  }
+  auto raw_value = TrimAndStripQuotes(*value_optional);
+  if (raw_value.empty()) {
+    return;
+  }
+
+  switch (spec.type) {
+    case ConfigOptionType::Flag: {
+      bool parsed = false;
+      if (!ParseBool(raw_value, &parsed)) {
+        throw std::runtime_error("Invalid boolean value for '" + path +
+                                 "': " + raw_value);
+      }
+      if (parsed) {
+        args.emplace_back(spec.option);
+      }
+      break;
+    }
+    case ConfigOptionType::Value: {
+      args.emplace_back(spec.option);
+      args.emplace_back(raw_value);
+      break;
+    }
+    case ConfigOptionType::BoolValue: {
+      bool parsed = false;
+      if (!ParseBool(raw_value, &parsed)) {
+        throw std::runtime_error("Invalid boolean value for '" + path +
+                                 "': " + raw_value);
+      }
+      args.emplace_back(spec.option);
+      args.emplace_back(parsed ? "true" : "false");
+      break;
+    }
+    case ConfigOptionType::OptionalBool: {
+      auto lowered = boost::algorithm::to_lower_copy(raw_value);
+      if (lowered != "true" && lowered != "false" && lowered != "none") {
+        throw std::runtime_error("Invalid optional boolean value for '" + path +
+                                 "': " + raw_value);
+      }
+      args.emplace_back(spec.option);
+      args.emplace_back(lowered);
+      break;
+    }
+    case ConfigOptionType::MultiValue: {
+      auto values = ParseValueList(raw_value);
+      if (values.empty()) {
+        throw std::runtime_error("Empty list for multi-value option '" + path +
+                                 "'");
+      }
+      args.emplace_back(spec.option);
+      for (auto& v : values) {
+        args.emplace_back(v);
+      }
+      break;
+    }
+    case ConfigOptionType::LibcameraControl: {
+      AppendLibcameraControlArgs(raw_value, spec, args);
+      break;
+    }
+    case ConfigOptionType::Serial: {
+      args.emplace_back(spec.option);
+      args.emplace_back(raw_value);
+      break;
+    }
+    case ConfigOptionType::Json: {
+      args.emplace_back(spec.option);
+      args.emplace_back(raw_value);
+      break;
+    }
+  }
+}
+
+void AppendSection(const boost::property_tree::ptree& pt,
+                   const std::string& section,
+                   std::vector<std::string>& args) {
+  const auto& specs = GetConfigOptionSpecs();
+  for (const auto& spec : specs) {
+    if (spec.section == nullptr) {
+      continue;
+    }
+    if (section == spec.section) {
+      AppendOptionFromConfig(pt, spec, args);
+    }
+  }
+}
+
+std::vector<std::string> BuildArgsFromConfig(const char* program_name) {
+  fs::path config_path = fs::current_path() / "config" / "config.ini";
+  if (!fs::exists(config_path)) {
+    throw std::runtime_error("Configuration file not found: " +
+                             config_path.string());
+  }
+
+  boost::property_tree::ptree pt;
+  boost::property_tree::ini_parser::read_ini(config_path.string(), pt);
+
+  auto mode_optional = pt.get_optional<std::string>("general.mode");
+  if (!mode_optional) {
+    throw std::runtime_error("Missing 'mode' in [general] section of " +
+                             config_path.string());
+  }
+
+  auto mode = boost::algorithm::to_lower_copy(TrimAndStripQuotes(*mode_optional));
+  if (mode != "p2p" && mode != "sora" && mode != "ayame") {
+    throw std::runtime_error("Unsupported mode '" + mode +
+                             "' in configuration. Supported modes: p2p, sora, ayame.");
+  }
+
+  std::vector<std::string> args;
+  args.emplace_back(program_name);
+
+  AppendSection(pt, "general", args);
+
+  args.emplace_back(mode);
+  AppendSection(pt, mode, args);
+
+  return args;
+}
+
+}  // namespace
 
 static void add_optional_bool(CLI::App* app,
                               const std::string& option_name,
@@ -378,8 +762,29 @@ void Util::ParseArgs(int argc,
                    "Signaling metadata used in connect message")
       ->check(is_json);
 
+  bool parsed_from_config = false;
+  std::vector<std::string> config_storage;
+  if (argc <= 1) {
+    try {
+      config_storage = BuildArgsFromConfig(argv[0]);
+      parsed_from_config = true;
+    } catch (const std::exception& e) {
+      std::cerr << "Failed to load configuration: " << e.what() << std::endl;
+      exit(1);
+    }
+  }
+
   try {
-    app.parse(argc, argv);
+    if (parsed_from_config) {
+      std::vector<char*> argv_ptrs;
+      argv_ptrs.reserve(config_storage.size());
+      for (auto& entry : config_storage) {
+        argv_ptrs.push_back(const_cast<char*>(entry.c_str()));
+      }
+      app.parse(static_cast<int>(argv_ptrs.size()), argv_ptrs.data());
+    } else {
+      app.parse(argc, argv);
+    }
   } catch (const CLI::ParseError& e) {
     exit(app.exit(e));
   }
