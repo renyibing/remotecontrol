@@ -3,6 +3,8 @@
 AI-Ready ultra-low-latency remote desktop, cloud gaming, and interactive streaming platform.  
 Supports keyboard/mouse/gamepad input, P2P & relay mode, H.264/H.265/AV1/VP8/VP9, and cross-platform builds (Windows / macOS / Linux / Android / iOS).
 
+![Preview](./images/animation.gif)
+
 [![Release](https://img.shields.io/github/v/release/renyibing/remotecontrol)](https://github.com/renyibing/remotecontrol/releases)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Stars](https://img.shields.io/github/stars/renyibing/remotecontrol?style=social)](https://github.com/renyibing/remotecontrol/stargazers)
@@ -43,7 +45,6 @@ Extended & maintained by **Bob Haskins** — adding remote-control, AI workflow,
 ---
 
 ## 🖼️ Preview
-
 | Desktop Control | Cloud Workflow |
 |-----------------|----------------|
 | ![Preview](./images/ea512f48-4b82-44c3-93db-a8572ddde107.png) | ![Preview](./images/f560ef54-f37b-4c91-b734-fb49ad9ad95c.png) |
