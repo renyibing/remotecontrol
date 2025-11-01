@@ -31,15 +31,16 @@ extern int RunMomoApp(int argc, char* argv[]);
 
 namespace momo::svc {
 
-void LogService(const std::string& message) std::ofstream
-    log("momo_service.log", std::ios::app);
-if (!log.is_open()) {
-  return;
+void LogService(const std::string& message) {
+  std::ofstream log_file("momo_service.log", std::ios::app);
+  if (!log_file.is_open()) {
+    return;
+  }
+  auto now = std::chrono::system_clock::now();
+  auto tt = std::chrono::system_clock::to_time_t(now);
+  log_file << std::put_time(std::localtime(&tt), "%Y-%m-%d %H:%M:%S") << " | "
+           << message << std::endl;
 }
-auto now = std::chrono::system_clock::now();
-auto tt = std::chrono::system_clock::to_time_t(now);
-log << std::put_time(std::localtime(&tt), "%Y-%m-%d %H:%M:%S") << " | "
-    << message << std::endl;
 
 namespace {
 
