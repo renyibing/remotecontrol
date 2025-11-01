@@ -159,6 +159,10 @@ target_sources(momo
     src/websocket.cpp
 )
 
+if (WIN32)
+  target_sources(momo PRIVATE src/momo_svc.cpp)
+endif()
+
 target_include_directories(momo PRIVATE src)
 
 # Remote control: Optional to enable Protobuf (using WebRTC's built-in protobuf-lite)
@@ -349,6 +353,9 @@ if ("${TARGET_OS}" STREQUAL "windows")
       wmcodecdspuuid.lib
       Dwmapi.lib
       D3D11.lib
+      Advapi32.lib
+      Userenv.lib
+      Wtsapi32.lib
   )
 
   target_compile_definitions(momo

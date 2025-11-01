@@ -11,6 +11,17 @@
 
 ## develop
 
+- [FIX] Windows service launches child in interactive user session (CreateProcessAsUserW)
+- Falls back to CreateProcessW in Session 0 with `--no-audio-device` to avoid CoreAudio crash
+- Ensures early WebRTC INFO line is written so `webrtc_logs_0` is populated
+- Links `Userenv.lib` and `Wtsapi32.lib` on Windows
+- Logs sanitized service args with default `--log-level info` if not provided
+- [IMPROVE] Screen capture: send synthetic black frames when capture fails (e.g., secure desktop) to keep stream alive
+- [IMPROVE] Service logs WTS session change events for diagnostics
+- [CHANGE] Service always launches child in Session 0 (LocalSystem) using CreateProcessW; child auto-forces no_audio_device in Session 0
+- [CHANGE] Service now prefers launching child in active console session (CreateProcessAsUserW); falls back to Session 0
+- @codex
+
 - [CHANGE] Change the `--video-device` option to `--video-input-device`
 - @voluntas
 - [CHANGE] Change the `--no-video-device` option to `--no-video-input-device`

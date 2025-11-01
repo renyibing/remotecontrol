@@ -61,6 +61,7 @@
 #include "remote/platform/windows/cursor_monitor_win.h"
 #include "remote/platform/windows/ime_monitor_win.h"
 #include "remote/platform/windows/input_injector_win.h"
+#include "momo_svc.h"
 #endif
 
 #include "ayame/ayame_client.h"
@@ -79,6 +80,8 @@
 
 #ifdef _WIN32
 #include <rtc_base/win/scoped_com_initializer.h>
+// For ProcessIdToSessionId
+#include <WtsApi32.h>
 // Register event hook: overlay handles events first (virtual keyboard/toolbar);
 // if not consumed, dispatch to input capture
 #endif
@@ -108,13 +111,19 @@ static void ListVideoDevices() {
 // Add input DataChannel manager framework (input-reliable / input-rt)
 #endif
 
-int main(int argc, char* argv[]) {
+int RunMomoApp(int argc, char* argv[]) {
+#ifdef _WIN32
+  momo::svc::LogService("RunMomoApp entered, argc=" + std::to_string(argc));
+#endif
 #ifdef _WIN32
   webrtc::ScopedCOMInitializer com_initializer(
       webrtc::ScopedCOMInitializer::kMTA);
   // Receiver (use_sdl=true): only for displaying IME/cursor; do not perform local injection
   if (!com_initializer.Succeeded()) {
     std::cerr << "CoInitializeEx failed" << std::endl;
+#ifdef _WIN32
+    momo::svc::LogService("RunMomoApp: CoInitializeEx failed");
+#endif
     return 1;
   }
 #endif
@@ -127,16 +136,50 @@ int main(int argc, char* argv[]) {
   bool use_sora = false;
   int log_level = webrtc::LS_NONE;
 
+#ifdef _WIN32
+  momo::svc::LogService("RunMomoApp: invoking ParseArgs");
+#endif
   Util::ParseArgs(argc, argv, use_p2p, use_ayame, use_sora, log_level, args);
+#ifdef _WIN32
+  momo::svc::LogService("RunMomoApp: ParseArgs completed. use_p2p=" +
+                        std::to_string(use_p2p) + ", use_ayame=" +
+                        std::to_string(use_ayame) + ", use_sora=" +
+                        std::to_string(use_sora));
+  // If running under Session 0 (service), force no_audio_device to avoid CoreAudio init.
+  DWORD this_sid = 0;
+  if (ProcessIdToSessionId(GetCurrentProcessId(), &this_sid)) {
+    momo::svc::LogService("RunMomoApp: Current SessionId=" + std::to_string(this_sid));
+    if (this_sid == 0) {
+      args.no_audio_device = true;
+      momo::svc::LogService("RunMomoApp: Session 0 detected; forcing no_audio_device=true");
+      if (args.use_sdl) {
+        args.use_sdl = false;
+        momo::svc::LogService("RunMomoApp: Session 0 detected; disabling use_sdl");
+      }
+      // In Session 0, camera and screen capture are unreliable/crash-prone.
+      // Prefer running headless without video to keep signaling alive.
+      if (!args.no_video_device) {
+        momo::svc::LogService("RunMomoApp: Session 0 detected; forcing no_video_device=true");
+        args.no_video_device = true;
+      }
+    }
+  }
+#endif
 
-#if defined(__linux__)
+#ifdef __linux__
   // Processing of --list-devices option
   if (args.list_devices) {
+#ifdef _WIN32
+    momo::svc::LogService("RunMomoApp: list_devices requested on Linux path");
+#endif
     ListVideoDevices();
     return 0;
   }
 #else
   if (args.list_devices) {
+#ifdef _WIN32
+    momo::svc::LogService("RunMomoApp: list_devices requested on unsupported platform");
+#endif
     std::cerr << "--list-devices is only supported on Linux" << std::endl;
     return 1;
   }
@@ -151,20 +194,31 @@ int main(int argc, char* argv[]) {
       new webrtc::FileRotatingLogSink("./", "webrtc_logs",
                                       kDefaultMaxLogFileSize, 10));
   if (!log_sink->Init()) {
+#ifdef _WIN32
+    momo::svc::LogService("RunMomoApp: FileRotatingLogSink init failed");
+#endif
     RTC_LOG(LS_ERROR) << __FUNCTION__ << "Failed to open log file";
     log_sink.reset();
     return 1;
   }
+#ifdef _WIN32
+  momo::svc::LogService("RunMomoApp: FileRotatingLogSink initialized");
+#endif
+  // Ensure the rotating log file is created even if RTC_LOG macros are compiled out.
+  // In WebRTC m138, FileRotatingLogSink exposes OnLogMessage(const std::string&).
+  log_sink->OnLogMessage(std::string("WebRTC file sink opened"));
   webrtc::LogMessage::AddLogToStream(log_sink.get(), webrtc::LS_INFO);
+  RTC_LOG(LS_INFO) << "WebRTC logging started (service-run safe guard)";
 
 #if defined(USE_NVCODEC_ENCODER)
-  auto cuda_context = sora::CudaContext::Create();
-
-  // If NvCodec is enabled and a HW MJPEG decoder is used, CUDA must be available
-  if (args.hw_mjpeg_decoder && cuda_context == nullptr) {
-    std::cerr << "Specified --hw-mjpeg-decoder=true but CUDA is invalid."
-              << std::endl;
-    return 2;
+  std::shared_ptr<sora::CudaContext> cuda_context;
+  if (args.hw_mjpeg_decoder) {
+    cuda_context = sora::CudaContext::Create();
+    if (cuda_context == nullptr) {
+      std::cerr << "Specified --hw-mjpeg-decoder=true but CUDA is invalid."
+                << std::endl;
+      return 2;
+    }
   }
 #endif
 
@@ -256,9 +310,16 @@ int main(int argc, char* argv[]) {
       })();
 
   if (!capturer && !args.no_video_device) {
+#ifdef _WIN32
+    momo::svc::LogService("RunMomoApp: failed to create capturer");
+#endif
     std::cerr << "failed to create capturer" << std::endl;
     return 1;
   }
+
+#ifdef _WIN32
+  momo::svc::LogService("RunMomoApp: capturer ready");
+#endif
 
   RTCManagerConfig rtcm_config;
   rtcm_config.insecure = args.insecure;
@@ -407,6 +468,9 @@ int main(int argc, char* argv[]) {
 
   std::unique_ptr<RTCManager> rtc_manager(new RTCManager(
       std::move(rtcm_config), std::move(capturer), sdl_renderer.get()));
+#ifdef _WIN32
+  momo::svc::LogService("RunMomoApp: RTCManager constructed");
+#endif
 
   // Initial selection of audio output device (GUID priority, then index)
   if (!args.no_audio_device) {
@@ -430,6 +494,9 @@ int main(int argc, char* argv[]) {
     boost::asio::io_context ioc{1};
     boost::asio::executor_work_guard<boost::asio::io_context::executor_type>
         work_guard(ioc.get_executor());
+#ifdef _WIN32
+    momo::svc::LogService("RunMomoApp: io_context and work_guard ready");
+#endif
 
     std::shared_ptr<RTCDataManager> data_manager = nullptr;
     if (!args.serial_device.empty()) {
@@ -548,6 +615,9 @@ int main(int argc, char* argv[]) {
     std::shared_ptr<StatsCollector> stats_collector;
 
     if (use_sora) {
+#ifdef _WIN32
+      momo::svc::LogService("RunMomoApp: configuring Sora client");
+#endif
       SoraClientConfig config;
       config.insecure = args.insecure;
       config.signaling_urls = args.sora_signaling_urls;
@@ -599,6 +669,9 @@ int main(int argc, char* argv[]) {
     }
 
     if (use_p2p) {
+#ifdef _WIN32
+      momo::svc::LogService("RunMomoApp: starting P2P server");
+#endif
       P2PServerConfig config;
       config.no_google_stun = args.no_google_stun;
       config.doc_root = args.p2p_document_root;
@@ -614,6 +687,9 @@ int main(int argc, char* argv[]) {
     }
 
     if (use_ayame) {
+#ifdef _WIN32
+      momo::svc::LogService("RunMomoApp: configuring Ayame client");
+#endif
       AyameClientConfig config;
       config.insecure = args.insecure;
       config.no_google_stun = args.no_google_stun;
@@ -645,6 +721,9 @@ int main(int argc, char* argv[]) {
     }
 
     if (sdl_renderer) {
+#ifdef _WIN32
+      momo::svc::LogService("RunMomoApp: entering SDL renderer loop");
+#endif
       sdl_renderer->SetDispatchFunction([&ioc](std::function<void()> f) {
         if (ioc.stopped())
           return;
@@ -655,12 +734,71 @@ int main(int argc, char* argv[]) {
 
       sdl_renderer->SetDispatchFunction(nullptr);
     } else {
+#ifdef _WIN32
+      momo::svc::LogService("RunMomoApp: entering io_context run");
+#endif
       ioc.run();
     }
   }
 
+#ifdef _WIN32
+  momo::svc::LogService("RunMomoApp: event loop exited");
+#endif
+
   // This order is clean, but not very safe
   sdl_renderer = nullptr;
 
+#ifdef _WIN32
+  momo::svc::LogService("RunMomoApp exiting");
+#endif
   return 0;
+}
+
+#ifdef _WIN32
+namespace {
+
+int HandleServiceCommands(int argc, char* argv[]) {
+  std::vector<std::string> args(argv + 1, argv + argc);
+  for (size_t i = 0; i < args.size(); ++i) {
+    const auto& arg = args[i];
+    if (arg == "--installservice") {
+      std::vector<std::string> service_args(args.begin() + i + 1, args.end());
+      bool ok = momo::svc::InstallService(service_args);
+      return ok ? 0 : 1;
+    }
+    if (arg == "--uninstallservice") {
+      bool ok = momo::svc::UninstallService();
+      return ok ? 0 : 1;
+    }
+    if (arg == "--startservice") {
+      bool ok = momo::svc::StartMomoService();
+      return ok ? 0 : 1;
+    }
+    if (arg == "--stopservice") {
+      bool ok = momo::svc::StopMomoService();
+      return ok ? 0 : 1;
+    }
+    if (arg == "--restartservice") {
+      bool ok = momo::svc::RestartMomoService();
+      return ok ? 0 : 1;
+    }
+    if (arg == "--service") {
+      momo::svc::SetServiceCommandLine(argc, argv);
+      return momo::svc::RunService();
+    }
+  }
+  return -1;
+}
+
+}  // namespace
+#endif
+
+int main(int argc, char* argv[]) {
+#ifdef _WIN32
+  int service_result = HandleServiceCommands(argc, argv);
+  if (service_result >= 0) {
+    return service_result;
+  }
+#endif
+  return RunMomoApp(argc, argv);
 }

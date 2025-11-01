@@ -11,6 +11,7 @@
 
 #include <iostream>
 #include <memory>
+#include <cstring>
 
 // WebRTC
 #include <api/video/i420_buffer.h>
@@ -48,6 +49,9 @@ bool ScreenVideoCapturer::GetSourceList(
       //webrtc::DesktopCapturer::CreateWindowCapturer(CreateDesktopCaptureOptions())
       webrtc::DesktopCapturer::CreateScreenCapturer(
           CreateDesktopCaptureOptions()));
+  if (!screen_capturer) {
+    return false;
+  }
   return screen_capturer->GetSourceList(sources);
 }
 
@@ -77,7 +81,11 @@ ScreenVideoCapturer::ScreenVideoCapturer(
     }
   }
 
-  capturer_->Start(this);
+  if (capturer_) {
+    capturer_->Start(this);
+  } else {
+    RTC_LOG(LS_WARNING) << "ScreenVideoCapturer: no capturer available; will emit black frames";
+  }
   capture_thread_ = webrtc::PlatformThread::SpawnJoinable(
       [this]() {
         while (CaptureProcess()) {
@@ -125,7 +133,41 @@ bool ScreenVideoCapturer::CaptureProcess() {
   }
 
   int64_t started_time = webrtc::TimeMillis();
-  capturer_->CaptureFrame();
+
+  if (capturer_) {
+    capturer_->CaptureFrame();
+  } else {
+    // Emit a synthetic black frame when capturer is unavailable (e.g., secure desktop or Session 0 restrictions)
+    size_t out_w = max_width_ ? max_width_ : 1280;
+    size_t out_h = max_height_ ? max_height_ : 720;
+    out_w &= ~1;
+    out_h &= ~1;
+    if (out_w < 2) out_w = 2;
+    if (out_h < 2) out_h = 2;
+    webrtc::scoped_refptr<webrtc::I420Buffer> dst(
+        webrtc::I420Buffer::Create((int)out_w, (int)out_h));
+    uint8_t* y = dst->MutableDataY();
+    uint8_t* u = dst->MutableDataU();
+    uint8_t* v = dst->MutableDataV();
+    int sy = dst->StrideY();
+    int su = dst->StrideU();
+    int sv = dst->StrideV();
+    for (int j = 0; j < (int)out_h; ++j) {
+      memset(y + j * sy, 16, (size_t)out_w);
+    }
+    for (int j = 0; j < (int)(out_h / 2); ++j) {
+      memset(u + j * su, 128, (size_t)(out_w / 2));
+      memset(v + j * sv, 128, (size_t)(out_w / 2));
+    }
+    webrtc::VideoFrame blk = webrtc::VideoFrame::Builder()
+                                 .set_video_frame_buffer(dst)
+                                 .set_timestamp_rtp(0)
+                                 .set_timestamp_ms(webrtc::TimeMillis())
+                                 .set_rotation(webrtc::kVideoRotation_0)
+                                 .build();
+    ScalableVideoTrackSource::OnFrame(blk);
+  }
+
   int last_capture_duration = (int)(webrtc::TimeMillis() - started_time);
   int capture_period =
       std::max((last_capture_duration * 100) / max_cpu_consumption_percentage_,
@@ -144,7 +186,39 @@ void ScreenVideoCapturer::OnCaptureResult(
   bool success = result == webrtc::DesktopCapturer::Result::SUCCESS;
 
   if (!success) {
-    //RTC_LOG(LS_ERROR) << __FUNCTION__ << " !success";
+    // On Windows, secure desktop (Ctrl+Alt+Del, lock screen) cannot be captured.
+    // To keep the stream alive and avoid renegotiation, emit a synthetic black frame.
+    size_t out_w = capture_width_ ? capture_width_ : (max_width_ ? max_width_ : 1280);
+    size_t out_h = capture_height_ ? capture_height_ : (max_height_ ? max_height_ : 720);
+    // Ensure even dimensions
+    out_w &= ~1;
+    out_h &= ~1;
+    if (out_w < 2) out_w = 2;
+    if (out_h < 2) out_h = 2;
+
+    webrtc::scoped_refptr<webrtc::I420Buffer> dst(
+        webrtc::I420Buffer::Create((int)out_w, (int)out_h));
+    // Proper black in I420 is Y=16, U=128, V=128 (studio range). Use that to avoid tint.
+    uint8_t* y = dst->MutableDataY();
+    uint8_t* u = dst->MutableDataU();
+    uint8_t* v = dst->MutableDataV();
+    int sy = dst->StrideY();
+    int su = dst->StrideU();
+    int sv = dst->StrideV();
+    for (int j = 0; j < (int)out_h; ++j) {
+      memset(y + j * sy, 16, (size_t)out_w);
+    }
+    for (int j = 0; j < (int)(out_h / 2); ++j) {
+      memset(u + j * su, 128, (size_t)(out_w / 2));
+      memset(v + j * sv, 128, (size_t)(out_w / 2));
+    }
+    webrtc::VideoFrame black = webrtc::VideoFrame::Builder()
+                                   .set_video_frame_buffer(dst)
+                                   .set_timestamp_rtp(0)
+                                   .set_timestamp_ms(webrtc::TimeMillis())
+                                   .set_rotation(webrtc::kVideoRotation_0)
+                                   .build();
+    ScalableVideoTrackSource::OnFrame(black);
     return;
   }
 
